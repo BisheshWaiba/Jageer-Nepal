@@ -29,6 +29,37 @@ export function useJobOffers(technicianId: string | undefined) {
   return data ?? [];
 }
 
+/** Work the technician's employer has opened to the whole team - nobody
+ * has taken it yet, and the first to accept gets it. RLS only lets an
+ * accepted employee see their own employer's open jobs (migration 0076),
+ * so this needs no filter of its own beyond "open and unclaimed". */
+export function useOpenTeamJobs(technicianId: string | undefined) {
+  const queryClient = useQueryClient();
+  const { data } = useSupabaseQuery('service_requests', {
+    filters: { open_to_team: true },
+    orderBy: { column: 'created_at', ascending: true },
+    enabled: !!technicianId,
+    queryOptions: { refetchInterval: 20_000 },
+  });
+
+  useEffect(() => {
+    if (!technicianId) return;
+    return subscribeToTable('service_requests', () =>
+      queryClient.invalidateQueries({ queryKey: ['service_requests'] })
+    );
+  }, [technicianId, queryClient]);
+
+  return (data ?? []).filter((job) => !job.technician_id);
+}
+
+/** Take an open job. First come, first served - the server locks the row,
+ * so a second person tapping at the same moment is told it is gone
+ * (migration 0076). */
+export async function claimOpenJob(requestId: string) {
+  const { error } = await (supabase as any).rpc('claim_open_job', { p_request_id: requestId });
+  if (error) throw error;
+}
+
 /** Accept starts the job and opens its job card; reject hands it back to the
  * reseller. Runs as one server-side transaction (migration 0071). */
 export async function respondToJobOffer(requestId: string, accept: boolean) {

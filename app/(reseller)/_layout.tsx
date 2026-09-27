@@ -19,6 +19,7 @@ const NAV_ITEMS: WebNavItem[] = [
   { href: '/(reseller)/dashboard', label: 'Home', icon: 'home' },
   { href: '/(reseller)/shop', label: 'Shop', icon: 'bag' },
   { href: '/(reseller)/requests', label: 'Requests', icon: 'clipboard' },
+  { href: '/(reseller)/workhub', label: 'Work Hub', icon: 'grid' },
   {
     href: '/(reseller)/finance',
     label: 'Finance',
@@ -54,6 +55,14 @@ export default function ResellerLayout() {
             title: 'My Requests',
             tabBarLabel: 'Requests',
             tabBarIcon: ({ color, focused }) => <TabIcon name="clipboard" color={color} focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="workhub"
+          options={{
+            title: 'Work Hub',
+            tabBarLabel: 'Work',
+            tabBarIcon: ({ color, focused }) => <TabIcon name="grid" color={color} focused={focused} />,
           }}
         />
         <Tabs.Screen

@@ -157,6 +157,9 @@ export interface ServiceRequest {
   hold_resolved_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Offered to the whole team: any of this reseller's employees can take
+   * it, first come (see migration 0076). */
+  open_to_team: boolean;
 }
 
 export interface Product {

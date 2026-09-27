@@ -23,7 +23,7 @@ export const ROLE_ROUTES: Record<UserRole, string[]> = {
     'bank-accounts', 'bank-balances', 'checkout', 'company', 'customers', 'dashboard', 'daybook', 'edit-request',
     'employees', 'finance', 'import-statement', 'inventory', 'new-request', 'paid', 'profile', 'quick-payment',
     'quotation/new', 'received', 'report', 'request-details', 'requests', 'rewards', 'shop', 'to-give', 'to-receive',
-    'transactions', 'wholesale',
+    'transactions', 'wholesale', 'workhub',
   ],
   technician: ['dashboard', 'earnings', 'employment', 'jobs', 'profile', 'rewards', 'statement'],
   wholesaler: [

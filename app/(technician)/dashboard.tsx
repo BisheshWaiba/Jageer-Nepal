@@ -11,7 +11,7 @@ import { STATUS_STYLES } from '../../lib/constants/requestStatus';
 import { PersonAvatar } from '../../lib/components/PersonAvatar';
 import { RequestPhotoThumb } from '../../lib/components/RequestPhotoThumb';
 import { CategoryBadge } from '../../lib/components/CategoryBadge';
-import { respondToJobOffer } from '../../lib/hooks/useJobOffers';
+import { respondToJobOffer, useOpenTeamJobs, claimOpenJob } from '../../lib/hooks/useJobOffers';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
 import { formatScheduledWhen } from '../../lib/utils/scheduledTime';
 import type { ServiceRequest } from '../../types/database.types';
@@ -182,6 +182,62 @@ function ActiveJobCard({ item }: { item: ServiceRequest }) {
   );
 }
 
+/** Work the employer put in front of the whole team. Nobody owns it yet,
+ * so the only action is to take it - and whoever taps first gets it (the
+ * server settles ties, see claim_open_job). */
+function OpenJobCard({ item }: { item: ServiceRequest }) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+
+  async function take() {
+    setBusy(true);
+    try {
+      await claimOpenJob(item.id);
+      await queryClient.invalidateQueries({ queryKey: ['service_requests'] });
+      await queryClient.invalidateQueries({ queryKey: ['job_cards'] });
+      router.push(`/(technician)/job/${item.id}`);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      showAlert(
+        message.includes('already taken') ? 'Too late' : 'Could not take this job',
+        message.includes('already taken') ? 'A teammate got to this one first.' : message
+      );
+      await queryClient.invalidateQueries({ queryKey: ['service_requests'] });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <View className="mb-3 rounded-2xl border p-4" style={{ borderColor: '#A7F3D0', backgroundColor: '#F0FDF4' }}>
+      <Pressable onPress={() => router.push(`/(technician)/job/${item.id}`)} className="flex-row items-start gap-3">
+        <View className="items-center gap-1.5">
+          <CategoryBadge category={item.issue_type} />
+          <RequestPhotoThumb photoUrls={item.photo_urls} size={44} />
+        </View>
+        <WorkDetails item={item} />
+      </Pressable>
+
+      <View className="mt-3 flex-row items-center gap-1.5">
+        <Ionicons name="people-outline" size={13} color="#047857" />
+        <Text className="flex-1 text-[11.5px] text-emerald-800">
+          Open to the whole team - first to take it gets it.
+        </Text>
+      </View>
+
+      <Pressable
+        onPress={take}
+        disabled={busy}
+        className="mt-3 flex-row items-center justify-center gap-1.5 rounded-xl py-2.5 disabled:opacity-60"
+        style={{ backgroundColor: '#16A34A' }}
+      >
+        <Ionicons name="hand-left-outline" size={16} color="white" />
+        <Text className="text-sm font-bold text-white">{busy ? 'Taking…' : 'Take this job'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function EmploymentStatusCard({ userId }: { userId: string }) {
   const { current, employer } = useMyEmployment(userId);
 
@@ -224,6 +280,7 @@ export default function TechnicianDashboard() {
   });
 
   const newJobs = useMemo(() => (jobs ?? []).filter((j) => j.status === 'assigned'), [jobs]);
+  const openJobs = useOpenTeamJobs(userId);
   const activeJobs = useMemo(() => (jobs ?? []).filter((j) => j.status === 'in_progress'), [jobs]);
   const averageRating = useMemo(() => {
     if (!reviews || reviews.length === 0) return null;
@@ -244,7 +301,21 @@ export default function TechnicianDashboard() {
 
       {userId && <EmploymentStatusCard userId={userId} />}
 
-      {totalActive === 0 && (
+      {openJobs.length > 0 && (
+        <>
+          <View className="mb-2.5 flex-row items-center gap-1.5">
+            <Ionicons name="people" size={15} color="#059669" />
+            <Text className="text-[15px] font-bold text-gray-900">
+              Open work from your employer ({openJobs.length})
+            </Text>
+          </View>
+          {openJobs.map((job) => (
+            <OpenJobCard key={job.id} item={job} />
+          ))}
+        </>
+      )}
+
+      {totalActive === 0 && openJobs.length === 0 && (
         <View className="items-center rounded-2xl border border-dashed border-gray-200 bg-white py-10">
           <Ionicons name="briefcase-outline" size={28} color="#D1D5DB" />
           <Text className="mt-2 text-gray-500">No jobs assigned yet.</Text>
