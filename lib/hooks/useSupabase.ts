@@ -94,7 +94,9 @@ export function useSupabaseQuery<T extends TableName>(
 /** Fetch a single row by id. */
 export function useSupabaseRow<T extends TableName>(table: T, id: string | undefined, columns = '*') {
   return useQuery<Row<T> | null>({
-    queryKey: [table, 'row', id],
+    // A narrowed column list gets its own cache entry, so a partial row
+    // never stands in for a full one elsewhere.
+    queryKey: columns === '*' ? [table, 'row', id] : [table, 'row', id, columns],
     enabled: !!id,
     queryFn: async () => {
       const { data, error } = await (supabase.from(table) as any).select(columns).eq('id', id!).single();
@@ -187,21 +189,4 @@ export function subscribeToTable(table: TableName, onChange: () => void, filter?
   return () => {
     supabase.removeChannel(channel);
   };
-}
-
-/**
- * Convenience hook: subscribes to realtime changes on a table and
- * automatically invalidates the matching React Query cache key.
- *
- * Example (client issue tracking screen):
- *   useRealtimeSync('service_requests', `client_id=eq.${userId}`, { client_id: userId });
- */
-export function useRealtimeSync<T extends TableName>(table: T, filter: string | undefined, queryKeyFilters: QueryFilters) {
-  const queryClient = useQueryClient();
-  return () =>
-    subscribeToTable(
-      table,
-      () => queryClient.invalidateQueries({ queryKey: [table, queryKeyFilters] }),
-      filter
-    );
 }

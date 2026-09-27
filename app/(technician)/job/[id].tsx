@@ -92,7 +92,7 @@ interface PartRow {
 export default function JobCard() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const userId = useAuthStore((state) => state.session?.user.id);
-  const { data: request, isLoading } = useSupabaseRow('service_requests', id);
+  const { data: request, isLoading, isError } = useSupabaseRow('service_requests', id);
   const { data: jobCards } = useSupabaseQuery('job_cards', {
     filters: id ? { service_request_id: id } : {},
     enabled: !!id,
@@ -114,6 +114,33 @@ export default function JobCard() {
   const [resuming, setResuming] = useState(false);
   const queryClient = useQueryClient();
   const now = useNow(request?.status === 'in_progress' && !!jobCard?.started_at);
+
+  // Start the form from what's already on the job card, so re-completing a
+  // reopened job doesn't overwrite the recorded parts and labor with blanks.
+  // Re-runs when the status changes (resolved -> in_progress on reopen).
+  useEffect(() => {
+    if (!jobCard || request?.status !== 'in_progress') return;
+    const savedParts = jobCard.parts_used ?? [];
+    setParts(
+      savedParts.length > 0
+        ? savedParts.map((p) => ({ name: p.name, quantity: String(p.quantity), cost: String(p.cost) }))
+        : [{ name: '', quantity: '1', cost: '0' }]
+    );
+    setLaborCost(String(Number(jobCard.labor_cost) || 0));
+  }, [jobCard?.id, jobCard?.updated_at, request?.status]);
+
+  if (!isLoading && (isError || !request)) {
+    // A withdrawn offer (or a job handed to someone else) is no longer
+    // readable by this technician.
+    return (
+      <View className="flex-1 items-center justify-center bg-gray-50 px-6">
+        <Text className="text-center text-gray-500">This job is no longer available to you.</Text>
+        <Pressable onPress={() => router.replace('/(technician)/dashboard')} className="mt-4">
+          <Text className="font-semibold text-orange-600">Back to dashboard</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (isLoading || !request) {
     return (
@@ -413,6 +440,12 @@ export default function JobCard() {
 
       {request.status === 'in_progress' && (
         <View className="mb-6 rounded-xl bg-white p-5">
+          {request.quoted_price != null && Number(request.quoted_price) > 0 && (
+            <Text className="mb-3 text-xs leading-[17px] text-gray-500">
+              The customer pays the agreed price of NPR {Number(request.quoted_price).toLocaleString()}. Record parts
+              and labor here for the job record - if the job needs more, ask the reseller before going ahead.
+            </Text>
+          )}
           <Text className="mb-3 text-sm font-semibold text-gray-900">Parts used</Text>
           {parts.map((part, index) => (
             <View key={index} className="mb-2 flex-row items-center gap-2">

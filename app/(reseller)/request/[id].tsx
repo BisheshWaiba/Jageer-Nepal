@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../../lib/hooks/useAuth';
-import { useSupabaseRow, useSupabaseUpdate } from '../../../lib/hooks/useSupabase';
+import { useSupabaseRow, useSupabaseUpdate, useSupabaseQuery } from '../../../lib/hooks/useSupabase';
 import { useRankedTechnicians } from '../../../lib/hooks/useTechnicianRanking';
 import { RequestPhotos } from '../../../lib/components/RequestDetailsExtras';
 import { TechnicianPicker } from '../../../lib/components/TechnicianPicker';
@@ -30,9 +30,10 @@ import {
 } from '../../../lib/components/detail/DetailLayout';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
 import { assignTechnician, showJobSentAlert } from '../../../lib/utils/assignTechnician';
-import { reopenCompletedJob } from '../../../lib/hooks/useJobOffers';
+import { reopenCompletedJob, withdrawJobOffer, claimServiceRequest } from '../../../lib/hooks/useJobOffers';
 import { respondToJobHold } from '../../../lib/hooks/useJobHold';
 import { distanceKm } from '../../../lib/utils/distance';
+import { jobAmountDue } from '../../../lib/utils/jobAmount';
 import type { ServiceRequest } from '../../../types/database.types';
 
 function money(value: number | null | undefined): string {
@@ -249,6 +250,8 @@ function HoldCard({ request }: { request: ServiceRequest }) {
     }
   }
 
+  if (request.status !== 'in_progress') return null;
+
   if (request.hold_status === 'requested') {
     return (
       <DetailCard wide={wide} icon="pause-circle-outline" title="Hold request">
@@ -323,7 +326,37 @@ function JobTracking({ request }: { request: ServiceRequest }) {
   const updateRequest = useSupabaseUpdate('service_requests');
   const [showQr, setShowQr] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
   const queryClient = useQueryClient();
+  const { data: jobCards } = useSupabaseQuery('job_cards', { filters: { service_request_id: request.id } });
+  // What the customer actually pays - the same amount the QR charges and
+  // the ledger records.
+  const amountDue = jobAmountDue(request.quoted_price, jobCards?.[0]);
+
+  function confirmWithdraw() {
+    showAlert(
+      'Take this job back?',
+      "The technician hasn't answered yet. The job comes back to you so you can offer it to someone else.",
+      [
+        { text: 'Keep waiting', style: 'cancel' },
+        {
+          text: 'Take it back',
+          style: 'destructive',
+          onPress: async () => {
+            setWithdrawing(true);
+            try {
+              await withdrawJobOffer(request.id);
+              await queryClient.invalidateQueries({ queryKey: ['service_requests'] });
+            } catch (err) {
+              showAlert('Could not take it back', getErrorMessage(err));
+            } finally {
+              setWithdrawing(false);
+            }
+          },
+        },
+      ]
+    );
+  }
 
   function confirmReopen() {
     showAlert(
@@ -355,6 +388,7 @@ function JobTracking({ request }: { request: ServiceRequest }) {
   const finished = request.status === 'resolved';
   const cancelled = request.status === 'cancelled';
   const canCollect = finished && !paid;
+  const awaitingAnswer = request.status === 'assigned';
 
   const customerName = request.customer_name ?? customer?.full_name;
   const customerPhone = request.customer_phone ?? customer?.phone;
@@ -401,13 +435,13 @@ function JobTracking({ request }: { request: ServiceRequest }) {
 
   return (
     <DetailShell
-      bottomBar={canCollect ? <MobileBar hint={`Collect ${money(request.quoted_price)}`}>{markPaidButton}</MobileBar> : null}
+      bottomBar={canCollect ? <MobileBar hint={`Collect ${money(amountDue)}`}>{markPaidButton}</MobileBar> : null}
       right={
         <>
           {canCollect && (
             <NextStepCard
               wide={wide}
-              title={`Collect ${money(request.quoted_price)}`}
+              title={`Collect ${money(amountDue)}`}
               hint={
                 request.payment_method === 'online'
                   ? 'Online payments update on their own once Fonepay confirms - mark cash paid only if they pay you in person.'
@@ -424,7 +458,23 @@ function JobTracking({ request }: { request: ServiceRequest }) {
               </Pressable>
             </NextStepCard>
           )}
-          {!finished && !cancelled && (
+          {awaitingAnswer && (
+            <NextStepCard
+              wide={wide}
+              title="Waiting for the technician to accept"
+              hint="No answer? Take the job back and offer it to someone else."
+            >
+              <DetailButton
+                label={withdrawing ? 'Taking it back…' : 'Take job back'}
+                icon="arrow-undo"
+                kind="ghost"
+                height={42}
+                disabled={withdrawing}
+                onPress={confirmWithdraw}
+              />
+            </NextStepCard>
+          )}
+          {!finished && !cancelled && !awaitingAnswer && (
             <NextStepCard
               wide={wide}
               title="Wait for the job to finish"
@@ -438,7 +488,7 @@ function JobTracking({ request }: { request: ServiceRequest }) {
       <JobHero
         request={request}
         pill={pill}
-        amount={money(request.quoted_price)}
+        amount={money(amountDue)}
         amountLabel={amountLabel}
         customerName={customerName}
         customerPhone={customerPhone}
@@ -579,26 +629,34 @@ function SelfSourcedAssign({ request, userId }: { request: ServiceRequest; userI
 // Any reseller can see this pending app request in their Incoming queue, so
 // customer contact stays hidden until one of them claims it - claiming just
 // stamps reseller_id, which pulls it into that reseller's My Jobs tab.
-function AcceptIncomingRequest({ request, userId }: { request: ServiceRequest; userId: string }) {
-  const { data: customer } = useSupabaseRow('profiles', request.client_id);
-  const updateRequest = useSupabaseUpdate('service_requests');
+function AcceptIncomingRequest({ request }: { request: ServiceRequest }) {
+  // Only what the card shows - the phone number stays out of the app until
+  // this reseller has claimed the job.
+  const { data: customer } = useSupabaseRow('profiles', request.client_id, 'id, full_name, avatar_url');
+  const queryClient = useQueryClient();
+  const [accepting, setAccepting] = useState(false);
   const wide = useWideDetail();
   const [chatFocus, setChatFocus] = useState(0);
 
   async function handleAccept() {
+    setAccepting(true);
     try {
-      await updateRequest.mutateAsync({ id: request.id, values: { reseller_id: userId } });
+      await claimServiceRequest(request.id);
     } catch (err) {
       showAlert('Could not accept job', getErrorMessage(err));
+    } finally {
+      // Refetch either way - on a lost race this shows who has it now.
+      await queryClient.invalidateQueries({ queryKey: ['service_requests'] });
+      setAccepting(false);
     }
   }
 
   const acceptButton = (
     <DetailButton
-      label={updateRequest.isPending ? 'Accepting…' : 'Accept this job'}
+      label={accepting ? 'Accepting…' : 'Accept this job'}
       icon="checkmark-circle"
       kind="green"
-      disabled={updateRequest.isPending}
+      disabled={accepting}
       onPress={handleAccept}
     />
   );
@@ -887,8 +945,15 @@ export default function ResellerRequestDetail() {
       }
       return <SelfSourcedAssign request={request} userId={userId} />;
     }
+    if (request.reseller_id && !isMine) {
+      return (
+        <View className="flex-1 bg-gray-50 px-6 pt-4">
+          <Text className="text-lg font-semibold text-gray-900">Another reseller has already accepted this request.</Text>
+        </View>
+      );
+    }
     if (!isMine) {
-      return <AcceptIncomingRequest request={request} userId={userId} />;
+      return <AcceptIncomingRequest request={request} />;
     }
     return <SendQuote request={request} userId={userId} />;
   }

@@ -2,20 +2,22 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { useSupabaseRow, useSupabaseQuery, useSupabaseInsert, useSupabaseUpdate, useRealtimeSync } from '../../../lib/hooks/useSupabase';
+import { useQueryClient } from '@tanstack/react-query';
+import { useSupabaseRow, useSupabaseQuery, useSupabaseInsert, useSupabaseUpdate, subscribeToTable } from '../../../lib/hooks/useSupabase';
 import { useAuthStore } from '../../../lib/hooks/useAuth';
 import { RequestDetailsExtras } from '../../../lib/components/RequestDetailsExtras';
 import { PersonAvatar } from '../../../lib/components/PersonAvatar';
 import { PaymentQrModal } from '../../../lib/components/PaymentQrModal';
 import { SaveContactButtonLabeled } from '../../../lib/components/SaveContactButton';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
+import { jobAmountDue } from '../../../lib/utils/jobAmount';
 import type { JobCard, ServiceRequest } from '../../../types/database.types';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending — awaiting a price quote',
   quoted: 'Quote sent — awaiting your approval',
   approved: 'Approved — awaiting technician assignment',
-  assigned: 'Assigned — technician is on the way',
+  assigned: 'Technician found — waiting for them to accept',
   in_progress: 'In progress — repair underway',
   resolved: 'Resolved',
   cancelled: 'Cancelled',
@@ -71,8 +73,43 @@ function QuoteApproval({ request }: { request: ServiceRequest }) {
   );
 }
 
-function JobCardBreakdown({ jobCard }: { jobCard: JobCard }) {
+/** Before a technician is sent, the customer can still call the job off. */
+function CancelRequest({ request }: { request: ServiceRequest }) {
+  const updateRequest = useSupabaseUpdate('service_requests');
+
+  function confirmCancel() {
+    showAlert('Cancel this request?', "The reseller is told it's off. This can't be undone.", [
+      { text: 'Keep it', style: 'cancel' },
+      {
+        text: 'Cancel request',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await updateRequest.mutateAsync({ id: request.id, values: { status: 'cancelled' } });
+          } catch (err) {
+            showAlert('Could not cancel', getErrorMessage(err));
+          }
+        },
+      },
+    ]);
+  }
+
+  return (
+    <Pressable
+      onPress={confirmCancel}
+      disabled={updateRequest.isPending}
+      className="mt-4 items-center rounded-lg border border-red-200 bg-white py-2.5 disabled:opacity-50"
+    >
+      <Text className="text-sm font-semibold text-red-600">
+        {updateRequest.isPending ? 'Cancelling…' : 'Cancel request'}
+      </Text>
+    </Pressable>
+  );
+}
+
+function JobCardBreakdown({ jobCard, quotedPrice }: { jobCard: JobCard; quotedPrice: number | null }) {
   const total = Number(jobCard.labor_cost) + Number(jobCard.parts_cost);
+  const hasQuote = quotedPrice != null && Number(quotedPrice) > 0;
 
   return (
     <View className="mt-4 rounded-xl bg-white p-5">
@@ -97,14 +134,19 @@ function JobCardBreakdown({ jobCard }: { jobCard: JobCard }) {
       </View>
 
       <View className="mt-2 flex-row justify-between border-t border-gray-100 pt-2">
-        <Text className="font-semibold text-gray-900">Total</Text>
+        <Text className="font-semibold text-gray-900">{hasQuote ? 'Work total' : 'Total'}</Text>
         <Text className="font-semibold text-gray-900">NPR {total.toLocaleString()}</Text>
       </View>
+      {hasQuote && total !== Number(quotedPrice) && (
+        <Text className="mt-2 text-xs text-gray-500">
+          You pay the price you approved: NPR {Number(quotedPrice).toLocaleString()}.
+        </Text>
+      )}
     </View>
   );
 }
 
-function PayNow({ request, onPaid }: { request: ServiceRequest; onPaid: () => void }) {
+function PayNow({ request, amountDue, onPaid }: { request: ServiceRequest; amountDue: number | null; onPaid: () => void }) {
   const updateRequest = useSupabaseUpdate('service_requests');
   const [showQr, setShowQr] = useState(false);
 
@@ -145,6 +187,9 @@ function PayNow({ request, onPaid }: { request: ServiceRequest; onPaid: () => vo
   return (
     <View className="mt-4 rounded-xl border border-orange-200 bg-orange-50 p-5">
       <Text className="mb-1 text-sm uppercase tracking-wide text-orange-600">Payment due</Text>
+      {amountDue != null && (
+        <Text className="mb-1 text-2xl font-bold text-orange-800">NPR {amountDue.toLocaleString()}</Text>
+      )}
       <Text className="mb-3 text-sm text-orange-800">Choose how you'd like to pay for this job.</Text>
       <View className="flex-row gap-2">
         <Pressable
@@ -183,14 +228,18 @@ function RatingForm({
   const [submitted, setSubmitted] = useState(false);
 
   async function handleSubmit() {
-    await insertReview.mutateAsync({
-      service_request_id: serviceRequestId,
-      technician_id: technicianId,
-      client_id: clientId,
-      rating,
-      comment: comment.trim() || null,
-    });
-    setSubmitted(true);
+    try {
+      await insertReview.mutateAsync({
+        service_request_id: serviceRequestId,
+        technician_id: technicianId,
+        client_id: clientId,
+        rating,
+        comment: comment.trim() || null,
+      });
+      setSubmitted(true);
+    } catch (err) {
+      showAlert('Could not submit rating', getErrorMessage(err));
+    }
   }
 
   if (submitted) {
@@ -246,12 +295,24 @@ export default function RequestDetail() {
     enabled: !!id && request?.status === 'resolved',
   });
 
-  // Live-updates this screen whenever the technician changes the status.
-  const startSync = useRealtimeSync('service_requests', `id=eq.${id}`, { client_id: request?.client_id ?? null });
+  // Live-updates this screen whenever the reseller or technician changes
+  // the request. Invalidates the whole table prefix so this screen's
+  // single-row query (['service_requests', 'row', id]) is included - and
+  // the job card / review queries that depend on the status.
+  const queryClient = useQueryClient();
   useEffect(() => {
     if (!id) return;
-    return startSync();
-  }, [id]);
+    return subscribeToTable(
+      'service_requests',
+      () => {
+        queryClient.invalidateQueries({ queryKey: ['service_requests'] });
+        queryClient.invalidateQueries({ queryKey: ['job_cards'] });
+        queryClient.invalidateQueries({ queryKey: ['reviews'] });
+      },
+      `id=eq.${id}`,
+      'client-request-detail'
+    );
+  }, [id, queryClient]);
 
   if (isLoading || !request) {
     return (
@@ -315,6 +376,8 @@ export default function RequestDetail() {
 
       {request.status === 'quoted' && <QuoteApproval request={request} />}
 
+      {(request.status === 'pending' || request.status === 'approved') && <CancelRequest request={request} />}
+
       <RequestDetailsExtras
         scheduledDate={request.scheduled_date}
         scheduledTime={request.scheduled_time}
@@ -329,10 +392,12 @@ export default function RequestDetail() {
         </View>
       )}
 
-      {request.status === 'resolved' && jobCards?.[0] && <JobCardBreakdown jobCard={jobCards[0]} />}
+      {request.status === 'resolved' && jobCards?.[0] && (
+        <JobCardBreakdown jobCard={jobCards[0]} quotedPrice={request.quoted_price} />
+      )}
 
       {request.status === 'resolved' && request.payment_status !== 'paid' && (
-        <PayNow request={request} onPaid={refetch} />
+        <PayNow request={request} amountDue={jobAmountDue(request.quoted_price, jobCards?.[0])} onPaid={refetch} />
       )}
 
       {request.status === 'resolved' &&

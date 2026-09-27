@@ -259,12 +259,18 @@ function RequestJobRow({ item, stage, wide }: { item: ServiceRequest; stage: Sta
   // A "reseller" origin request's client_id is just the reseller's own id
   // (there's no real customer profile behind it), so only look up real app
   // customers.
-  const { data: customerProfile } = useSupabaseRow('profiles', item.origin === 'app' ? item.client_id : undefined);
+  const isIncoming = !item.reseller_id;
+  // An unclaimed request only loads what the row shows - the customer's
+  // number stays out of the app until this reseller accepts it.
+  const { data: customerProfile } = useSupabaseRow(
+    'profiles',
+    item.origin === 'app' ? item.client_id : undefined,
+    isIncoming ? 'id, full_name, avatar_url' : '*'
+  );
   const { data: technicianProfile } = useSupabaseRow('profiles', item.technician_id ?? undefined);
   const updateRequest = useSupabaseUpdate('service_requests');
   const [deleting, setDeleting] = useState(false);
 
-  const isIncoming = !item.reseller_id;
   const customerName = item.customer_name ?? customerProfile?.full_name ?? 'Customer';
   // An unclaimed request keeps the customer's number hidden until accepted.
   const customerPhone = isIncoming ? null : (item.customer_phone ?? customerProfile?.phone ?? null);
@@ -320,9 +326,11 @@ function RequestJobRow({ item, stage, wide }: { item: ServiceRequest; stage: Sta
       ? `${technicianProfile.full_name ?? 'Technician'}${distance != null ? ` · ${distance.toFixed(1)} km away` : ''}`
       : (item.location_data?.address ?? null);
 
-  // Only requests the reseller sourced themselves - never a real app
-  // customer's - and only while there's still something to change.
-  const canManage = item.origin === 'reseller' && item.status !== 'resolved' && item.status !== 'cancelled';
+  // Any job this reseller owns can be cancelled while it's still open (a
+  // no-show app customer included); only their own walk-in jobs can be
+  // edited - an app customer's details and approved price are theirs.
+  const canCancel = !isIncoming && item.status !== 'resolved' && item.status !== 'cancelled';
+  const canEdit = canCancel && item.origin === 'reseller';
 
   function handleDelete() {
     showAlert('Cancel this request?', "This marks it as cancelled - it can't be undone.", [
@@ -358,8 +366,8 @@ function RequestJobRow({ item, stage, wide }: { item: ServiceRequest; stage: Sta
         amount: item.quoted_price,
         action,
         open,
-        onEdit: canManage ? () => router.push(`/(reseller)/edit-request?id=${item.id}`) : undefined,
-        onDelete: canManage ? handleDelete : undefined,
+        onEdit: canEdit ? () => router.push(`/(reseller)/edit-request?id=${item.id}`) : undefined,
+        onDelete: canCancel ? handleDelete : undefined,
         deleting,
       }}
     />

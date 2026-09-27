@@ -52,21 +52,23 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Service-role only past this point: computing the amount from job_cards
-    // and writing payment_method/fonepay_prn back onto the row.
+    // Service-role only past this point: reading job_cards and writing
+    // payment_method/fonepay_prn back onto the row.
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const { data: jobCards } = await adminClient
       .from('job_cards')
       .select('labor_cost, parts_cost')
       .eq('service_request_id', service_request_id)
+      .order('created_at')
       .limit(1);
 
+    // Same rule as the SQL service_request_amount() (migration 0077) that
+    // the ledger and payment triggers use: the price the customer agreed
+    // to, or the job card total only for a job that was never priced.
     const jobCard = jobCards?.[0];
-    // A job_card total of 0 means the technician never filled in real costs
-    // (defaults to 0) - fall back to the quoted price rather than trying to
-    // charge NPR 0.
     const jobTotal = jobCard ? Number(jobCard.labor_cost) + Number(jobCard.parts_cost) : 0;
-    const amount = jobTotal > 0 ? jobTotal : request.quoted_price != null ? Number(request.quoted_price) : null;
+    const quoted = request.quoted_price != null ? Number(request.quoted_price) : 0;
+    const amount = quoted > 0 ? quoted : jobTotal > 0 ? jobTotal : null;
 
     if (!amount || amount <= 0) {
       return new Response(JSON.stringify({ error: 'No payable amount is set on this job yet' }), {

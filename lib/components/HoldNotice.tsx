@@ -89,7 +89,7 @@ export function ResellerHoldNotice({ resellerId }: { resellerId: string | undefi
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const { data } = useSupabaseQuery('service_requests', {
-    filters: resellerId ? { reseller_id: resellerId, hold_status: 'requested' } : {},
+    filters: resellerId ? { reseller_id: resellerId, hold_status: 'requested', status: 'in_progress' } : {},
     orderBy: { column: 'hold_requested_at', ascending: true },
     enabled: !!resellerId,
     queryOptions: { refetchInterval: 20_000 },
