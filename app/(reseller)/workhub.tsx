@@ -128,6 +128,196 @@ function Column({
   );
 }
 
+const PAY_CHIP: Record<string, { label: string; color: string; bg: string }> = {
+  paid: { label: 'Paid', color: '#047857', bg: '#ECFDF5' },
+  partial: { label: 'Part paid', color: '#B45309', bg: '#FFFBEB' },
+  unpaid: { label: 'Unpaid', color: '#B91C1C', bg: '#FEF2F2' },
+};
+
+function Chip({ label, color, bg }: { label: string; color: string; bg: string }) {
+  return (
+    <View className="self-start rounded-full px-2 py-0.5" style={{ backgroundColor: bg }}>
+      <Text className="text-[10.5px] font-bold" style={{ color }} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/** The list the Work Hub opens on: one line per job with the few things
+ * usually being checked - what it is, who it's for, who has it, and
+ * whether it's been paid. The board (who's carrying what) is a tap away
+ * rather than the first thing in the way. */
+function JobSheet({
+  jobs,
+  technicianName,
+  onAssign,
+  onOpenToTeam,
+  busyId,
+  wide,
+}: {
+  jobs: ServiceRequest[];
+  technicianName: (id: string) => string;
+  onAssign: (request: ServiceRequest) => void;
+  onOpenToTeam: (request: ServiceRequest) => void;
+  busyId: string | null;
+  wide: boolean;
+}) {
+  const cell = 'px-3 py-2.5 border-r border-gray-100';
+  const head = (label: string, style: object) => (
+    <Text className={`${cell} text-[11px] font-bold uppercase tracking-wide text-gray-400`} style={style}>
+      {label}
+    </Text>
+  );
+
+  if (jobs.length === 0) {
+    return (
+      <View className="items-center rounded-2xl border border-dashed border-gray-200 bg-white py-10">
+        <Ionicons name="clipboard-outline" size={26} color="#D1D5DB" />
+        <Text className="mt-2 text-sm text-gray-500">No jobs in play right now.</Text>
+      </View>
+    );
+  }
+
+  if (!wide) {
+    return (
+      <View style={{ gap: 10 }}>
+        {jobs.map((r) => {
+          const pay = PAY_CHIP[r.payment_status] ?? PAY_CHIP.unpaid;
+          const chip = statusChip(r);
+          return (
+            <View key={r.id} className="rounded-2xl border border-gray-200 bg-white p-3.5">
+              <Pressable onPress={() => router.push(`/(reseller)/request/${r.id}` as any)}>
+                <Text className="text-[14px] font-bold text-gray-900" numberOfLines={1}>
+                  {r.issue_type}
+                </Text>
+                <Text className="mt-0.5 text-[12px] text-gray-600" numberOfLines={1}>
+                  {r.customer_name ?? 'Customer'}
+                  {r.customer_phone ? ` · ${r.customer_phone}` : ''}
+                </Text>
+                <View className="mt-1.5 flex-row flex-wrap items-center" style={{ gap: 6 }}>
+                  <Chip {...chip} />
+                  <Chip {...pay} />
+                  <Text className="text-[11.5px] text-gray-500">
+                    {r.technician_id ? technicianName(r.technician_id) : 'Nobody yet'}
+                  </Text>
+                </View>
+              </Pressable>
+              <View className="mt-2.5 flex-row" style={{ gap: 8 }}>
+                {!!r.customer_phone && (
+                  <Pressable
+                    onPress={() => Linking.openURL(`tel:${r.customer_phone}`)}
+                    className="h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white"
+                    accessibilityLabel="Call customer"
+                  >
+                    <Ionicons name="call-outline" size={15} color={BLUE} />
+                  </Pressable>
+                )}
+                <Pressable
+                  onPress={() => onAssign(r)}
+                  className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white"
+                >
+                  <Ionicons name="person-add-outline" size={15} color="#374151" />
+                  <Text className="text-[12.5px] font-semibold text-gray-700">
+                    {r.technician_id ? 'Reassign' : 'Assign'}
+                  </Text>
+                </Pressable>
+                {!r.technician_id && !r.open_to_team && (
+                  <Pressable
+                    onPress={() => onOpenToTeam(r)}
+                    className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg"
+                    style={{ backgroundColor: BLUE }}
+                  >
+                    <Ionicons name="megaphone-outline" size={15} color="#FFFFFF" />
+                    <Text className="text-[12.5px] font-semibold text-white">
+                      {busyId === r.id ? 'Opening…' : 'Open to team'}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
+  return (
+    <View className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+      <View className="flex-row border-b border-gray-200 bg-gray-50">
+        {head('Job', { flex: 1 })}
+        {head('Customer', { width: 220 })}
+        {head('With', { width: 150 })}
+        {head('Status', { width: 170 })}
+        {head('Payment', { width: 100 })}
+        <Text className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-gray-400" style={{ width: 210 }}>
+          Assign
+        </Text>
+      </View>
+      {jobs.map((r) => {
+        const pay = PAY_CHIP[r.payment_status] ?? PAY_CHIP.unpaid;
+        return (
+          <View key={r.id} className="flex-row items-center border-b border-gray-100">
+            <Pressable
+              onPress={() => router.push(`/(reseller)/request/${r.id}` as any)}
+              className={cell}
+              style={{ flex: 1 }}
+            >
+              <Text className="text-[13.5px] font-semibold text-gray-900" numberOfLines={1}>
+                {r.issue_type}
+              </Text>
+              <Text className="mt-0.5 text-[11.5px] text-gray-500" numberOfLines={1}>
+                {when(r)} · {money(r.quoted_price)}
+              </Text>
+            </Pressable>
+            <View className={cell} style={{ width: 220 }}>
+              <Text className="text-[13px] text-gray-900" numberOfLines={1}>
+                {r.customer_name ?? 'Customer'}
+              </Text>
+              {!!r.customer_phone && (
+                <Pressable onPress={() => Linking.openURL(`tel:${r.customer_phone}`)} className="flex-row items-center gap-1">
+                  <Ionicons name="call-outline" size={11} color={BLUE} />
+                  <Text className="text-[11.5px] font-medium" style={{ color: BLUE }}>
+                    {r.customer_phone}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+            <Text className={`${cell} text-[12.5px] text-gray-700`} style={{ width: 150 }} numberOfLines={1}>
+              {r.technician_id ? technicianName(r.technician_id) : r.open_to_team ? 'Open to team' : 'Nobody yet'}
+            </Text>
+            <View className={cell} style={{ width: 170 }}>
+              <Chip {...statusChip(r)} />
+            </View>
+            <View className={cell} style={{ width: 100 }}>
+              <Chip {...pay} />
+            </View>
+            <View className="flex-row px-3 py-2" style={{ width: 210, gap: 8 }}>
+              <Pressable
+                onPress={() => onAssign(r)}
+                className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white"
+              >
+                <Ionicons name="person-add-outline" size={15} color="#374151" />
+                <Text className="text-[12.5px] font-semibold text-gray-700">{r.technician_id ? 'Reassign' : 'Assign'}</Text>
+              </Pressable>
+              {!r.technician_id && !r.open_to_team && (
+                <Pressable
+                  onPress={() => onOpenToTeam(r)}
+                  className="h-9 w-9 items-center justify-center rounded-lg"
+                  style={{ backgroundColor: BLUE }}
+                  accessibilityLabel="Open to team"
+                >
+                  <Ionicons name="megaphone-outline" size={15} color="#FFFFFF" />
+                </Pressable>
+              )}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 /** Who is doing what, and what nobody has picked up yet. Assigning still
  * happens on the job's own page (it needs the technician list and the
  * price); this board is the overview that page can't give - and the one
@@ -139,6 +329,9 @@ export default function WorkHub() {
   const queryClient = useQueryClient();
   const updateRequest = useSupabaseUpdate('service_requests');
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The sheet answers "what is on today"; the board answers "who is
+  // carrying it". Opening on the lighter of the two.
+  const [view, setView] = useState<'sheet' | 'board'>('sheet');
 
   const { data: requests, isLoading } = useSupabaseQuery('service_requests', {
     filters: userId ? { reseller_id: userId } : {},
@@ -174,6 +367,11 @@ export default function WorkHub() {
   }, [byTechnician, employees]);
   const { data: allProfiles } = useSupabaseQuery('profiles', { enabled: outsideHolders.length > 0 });
   const profileById = useMemo(() => new Map((allProfiles ?? []).map((p: Profile) => [p.id, p])), [allProfiles]);
+
+  const technicianName = (id: string) =>
+    employees.find((e) => e.profile.id === id)?.profile.full_name ??
+    profileById.get(id)?.full_name ??
+    'Technician';
 
   async function setOpenToTeam(request: ServiceRequest, open: boolean) {
     setBusyId(request.id);
@@ -310,6 +508,15 @@ export default function WorkHub() {
           {unassigned.length} waiting for someone · {openToTeam.length} open to the team
         </Text>
       </View>
+      {view === 'board' && (
+        <Pressable
+          onPress={() => setView('sheet')}
+          className="h-9 flex-row items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3"
+        >
+          <Ionicons name="list-outline" size={15} color="#374151" />
+          <Text className="text-[12.5px] font-semibold text-gray-700">Back to list</Text>
+        </Pressable>
+      )}
       <Pressable
         onPress={() => router.push('/(reseller)/employees' as any)}
         className="h-9 flex-row items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3"
@@ -328,13 +535,40 @@ export default function WorkHub() {
     );
   }
 
+  const sheet = (
+    <>
+      <JobSheet
+        jobs={live}
+        technicianName={technicianName}
+        onAssign={(r) => router.push(`/(reseller)/request/${r.id}` as any)}
+        onOpenToTeam={(r) => setOpenToTeam(r, true)}
+        busyId={busyId}
+        wide={wide}
+      />
+      <Pressable
+        onPress={() => setView('board')}
+        className="flex-row items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white py-3.5"
+      >
+        <Ionicons name="grid-outline" size={17} color={BLUE} />
+        <Text className="text-[14px] font-semibold" style={{ color: BLUE }}>
+          View details
+        </Text>
+        <Text className="text-[12px] text-gray-500">— who is carrying what</Text>
+      </Pressable>
+    </>
+  );
+
   if (wide) {
     return (
       <ScrollView className="flex-1 bg-gray-50" contentContainerStyle={{ padding: 32, paddingTop: 20, gap: 16 }}>
         {header}
-        <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
-          {columns}
-        </ScrollView>
+        {view === 'sheet' ? (
+          sheet
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
+            {columns}
+          </ScrollView>
+        )}
       </ScrollView>
     );
   }
@@ -342,7 +576,7 @@ export default function WorkHub() {
   return (
     <ScrollView className="flex-1 bg-gray-50" contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 14 }}>
       {header}
-      {columns}
+      {view === 'sheet' ? sheet : columns}
     </ScrollView>
   );
 }
