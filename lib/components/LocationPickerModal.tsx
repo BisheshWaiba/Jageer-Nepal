@@ -147,6 +147,10 @@ export function LocationPickerModal({
     }
 
     if (!trimmed || trimmed.length < 3) {
+      // Invalidate any search still in flight and stop its spinner -
+      // shortening the query below 3 letters used to leave it spinning.
+      searchSeq.current += 1;
+      setSearching(false);
       setResults([]);
       return;
     }

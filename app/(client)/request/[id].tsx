@@ -280,8 +280,16 @@ function RatingForm({
   );
 }
 
-export default function RequestDetail() {
+export default function RequestDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  // Hidden tab screens stay mounted between visits, so opening another
+  // record reused this one's component state (typed quote/remark/price, a
+  // "thanks for rating" flag, an open edit form...). Keying on the id gives
+  // every record its own fresh state.
+  return <RequestDetail key={id} id={id} />;
+}
+
+function RequestDetail({ id }: { id: string }) {
   const userId = useAuthStore((state) => state.session?.user.id);
   const { data: request, isLoading, refetch } = useSupabaseRow('service_requests', id);
   const { data: reseller } = useSupabaseRow('profiles', request?.reseller_id ?? undefined);

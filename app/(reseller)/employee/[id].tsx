@@ -19,6 +19,7 @@ import { AssignJobList } from '../../../lib/components/AssignJobToEmployee';
 import { useWideDetail } from '../../../lib/components/detail/DetailLayout';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
 import { isValidPhone10 } from '../../../lib/utils/phone';
+import { workHoursIssue } from '../../../lib/utils/workHours';
 
 const BLUE = '#2563EB';
 const MAX_WIDTH = 620;
@@ -313,6 +314,11 @@ function TechnicianEmployee({ employmentId }: { employmentId: string }) {
 
   async function handleSave() {
     if (!form) return;
+    const hoursIssue = workHoursIssue(form.start, form.end);
+    if (hoursIssue) {
+      showAlert('Check the work hours', hoursIssue);
+      return;
+    }
     try {
       await update.save(employmentId, {
         job_title: form.jobTitle.trim() || null,
@@ -429,6 +435,11 @@ function ManualEmployee({ id }: { id: string }) {
 
   async function handleSave() {
     if (!form) return;
+    const hoursIssue = workHoursIssue(form.start, form.end);
+    if (hoursIssue) {
+      showAlert('Check the work hours', hoursIssue);
+      return;
+    }
     if (!form.name.trim()) {
       showAlert('Add a name', 'Type the name of the person you are keeping on your team.');
       return;

@@ -34,12 +34,16 @@ export const useCartStore = create<CartState>((set, get) => ({
     return true;
   },
   updateQuantity: (productId, quantity) =>
-    set((state) => ({
-      items:
+    set((state) => {
+      const items =
         quantity <= 0
           ? state.items.filter((i) => i.product.id !== productId)
-          : state.items.map((i) => (i.product.id === productId ? { ...i, quantity } : i)),
-    })),
+          : state.items.map((i) => (i.product.id === productId ? { ...i, quantity } : i));
+      // Same as removeItem: an emptied cart isn't tied to a seller any more,
+      // otherwise stepping the last item down to 0 blocked adding anything
+      // from a different seller.
+      return { items, sellerId: items.length ? state.sellerId : null };
+    }),
   removeItem: (productId) =>
     set((state) => {
       const items = state.items.filter((i) => i.product.id !== productId);

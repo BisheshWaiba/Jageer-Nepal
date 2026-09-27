@@ -207,7 +207,7 @@ export default function ResellerDashboard() {
         const category = pickerCategory.label;
         setPickerCategory(null);
         router.push(
-          `/(reseller)/request-details?category=${encodeURIComponent(category)}&action=${encodeURIComponent(action)}`
+          `/(reseller)/request-details?category=${encodeURIComponent(category)}&action=${encodeURIComponent(action)}&n=${Date.now()}`
         );
       }}
     />

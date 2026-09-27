@@ -16,6 +16,8 @@ import { toSafeImageUri } from '../../../lib/utils/image';
 import { resizeImageForUpload } from '../../../lib/utils/resizeImage';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
 import { adStringToBsOrToday, nepaliFiscalYearSuffix, toBsLabel } from '../../../lib/utils/nepaliDate';
+import { localTodayIso } from '../../../lib/utils/localDate';
+import { parseAmount, decimalInput, digitsInput } from '../../../lib/utils/number';
 import type { Product, QuotationItem } from '../../../types/database.types';
 
 const DEFAULT_TERMS = `Above price are Inclusive of VAT amount.
@@ -26,10 +28,6 @@ Damage resulting from relocation, power fluctuation, and natural disasters.
 Operating not with manufacturer specification or abuse or misuse.
 Customer making himself any repair or modification.
 50% in advance and remaining amount shall be paid within 15 days after the bill is received by the client after the completion of work.`;
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 // A business's initials from its own name, e.g. "MANSA TECHNOLOGY PVT.
 // LTD." -> "MTPL" - used as the last segment of a quote number, matching
@@ -58,13 +56,27 @@ function emptyRow(): ItemRow {
   return { photoUrl: null, subject: '', description: '', mrp: '', discount: '', rate: '', qty: '1' };
 }
 
+// The letterhead's columns read MRP -> Discount -> Rate: Rate is the
+// already-discounted unit price, so when it's filled in the discount is
+// already inside it. Subtracting the discount again (as this used to) quoted
+// every discounted line too low. Without a Rate, the unit price is MRP less
+// the per-unit discount.
+function rowUnitPrice(row: ItemRow): number {
+  const rate = parseAmount(row.rate) ?? 0;
+  if (rate > 0) return rate;
+  const mrp = parseAmount(row.mrp) ?? 0;
+  const discount = parseAmount(row.discount) ?? 0;
+  return Math.max(0, mrp - discount);
+}
+
 function rowAmount(row: ItemRow): number {
-  const qty = Number(row.qty) || 0;
-  const rate = Number(row.rate) || 0;
-  const mrp = Number(row.mrp) || 0;
-  const discount = Number(row.discount) || 0;
-  const unit = rate > 0 ? rate : mrp;
-  return Math.max(0, unit * qty - discount);
+  return rowUnitPrice(row) * (Number(row.qty) || 0);
+}
+
+/** A line actually being quoted - blank rows left in the form are skipped
+ * everywhere (total, PDF, saved copy) instead of printing as empty lines. */
+function isFilledRow(row: ItemRow): boolean {
+  return !!row.subject.trim();
 }
 
 function escapeHtml(value: string): string {
@@ -105,7 +117,7 @@ export default function NewQuotation() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [savingBusiness, setSavingBusiness] = useState(false);
 
-  const [date, setDate] = useState(todayIso());
+  const [date, setDate] = useState(localTodayIso());
   const [quoteNo, setQuoteNo] = useState('');
   const [quoteNoTouched, setQuoteNoTouched] = useState(false);
   const [subject, setSubject] = useState('');
@@ -130,7 +142,23 @@ export default function NewQuotation() {
     if (!quoteNoTouched) setQuoteNo(suggestedQuoteNo);
   }, [suggestedQuoteNo, quoteNoTouched]);
 
-  const total = useMemo(() => items.reduce((sum, row) => sum + rowAmount(row), 0), [items]);
+  // This screen stays mounted between visits (a hidden tab), so a finished
+  // quotation's client, items and hand-edited quote number used to carry
+  // straight into the next one - including a duplicate quote number.
+  function resetQuoteForm() {
+    setDate(localTodayIso());
+    setQuoteNo('');
+    setQuoteNoTouched(false);
+    setSubject('');
+    setClientName('');
+    setClientAddress('');
+    setSalespersonName(profile?.full_name ?? '');
+    setSalespersonPhone(profile?.phone ?? '');
+    setTerms(DEFAULT_TERMS);
+    setItems([emptyRow()]);
+  }
+
+  const total = useMemo(() => items.filter(isFilledRow).reduce((sum, row) => sum + rowAmount(row), 0), [items]);
 
   async function handleSaveBusiness() {
     if (!userId || !bizName.trim()) {
@@ -237,15 +265,16 @@ export default function NewQuotation() {
 
   function buildQuotationHtml(logoDataUri: string | null): string {
     const itemRows = items
+      .filter(isFilledRow)
       .map((row) => {
         const amount = rowAmount(row);
         return `<tr>
           <td style="border:1px solid #999;padding:6px;text-align:center;">${row.photoUrl ? `<img src="${row.photoUrl}" style="width:70px;height:70px;object-fit:cover;" />` : ''}</td>
           <td style="border:1px solid #999;padding:6px;">${escapeHtml(row.subject)}</td>
           <td style="border:1px solid #999;padding:6px;font-size:11px;">${escapeHtml(row.description)}</td>
-          <td style="border:1px solid #999;padding:6px;text-align:right;">${row.mrp ? Number(row.mrp).toLocaleString() : ''}</td>
-          <td style="border:1px solid #999;padding:6px;text-align:right;">${row.discount ? Number(row.discount).toLocaleString() : ''}</td>
-          <td style="border:1px solid #999;padding:6px;text-align:right;">${row.rate ? Number(row.rate).toLocaleString() : ''}</td>
+          <td style="border:1px solid #999;padding:6px;text-align:right;">${parseAmount(row.mrp) != null ? parseAmount(row.mrp)!.toLocaleString() : ''}</td>
+          <td style="border:1px solid #999;padding:6px;text-align:right;">${parseAmount(row.discount) != null ? parseAmount(row.discount)!.toLocaleString() : ''}</td>
+          <td style="border:1px solid #999;padding:6px;text-align:right;">${parseAmount(row.rate) != null ? parseAmount(row.rate)!.toLocaleString() : ''}</td>
           <td style="border:1px solid #999;padding:6px;text-align:center;">${escapeHtml(row.qty)}</td>
           <td style="border:1px solid #999;padding:6px;text-align:right;">${amount.toLocaleString()}</td>
         </tr>`;
@@ -329,13 +358,13 @@ export default function NewQuotation() {
       const html = buildQuotationHtml(logoDataUri);
       const { uri } = await Print.printToFileAsync({ html });
 
-      const quotationItems: QuotationItem[] = items.map((row) => ({
+      const quotationItems: QuotationItem[] = items.filter(isFilledRow).map((row) => ({
         photo_url: row.photoUrl,
         subject: row.subject.trim(),
         description: row.description.trim(),
-        mrp: row.mrp ? Number(row.mrp) : null,
-        discount: row.discount ? Number(row.discount) : null,
-        rate: row.rate ? Number(row.rate) : null,
+        mrp: parseAmount(row.mrp),
+        discount: parseAmount(row.discount),
+        rate: parseAmount(row.rate),
         qty: Number(row.qty) || 0,
         amount: rowAmount(row),
       }));
@@ -375,6 +404,7 @@ export default function NewQuotation() {
       } else {
         showAlert('Quotation generated', `Saved as quote ${quoteNo}.`);
       }
+      resetQuoteForm();
       router.back();
     } catch (err) {
       showAlert('Could not generate quotation', getErrorMessage(err));
@@ -431,13 +461,34 @@ export default function NewQuotation() {
               {uploadingLogo ? 'Uploading…' : bizLogoPath ? 'Logo added — tap to replace' : 'Add your logo (optional)'}
             </Text>
           </Pressable>
-          <Pressable
-            onPress={handleSaveBusiness}
-            disabled={savingBusiness}
-            className="items-center rounded-lg bg-blue-600 py-2.5 disabled:opacity-50"
-          >
-            <Text className="text-sm font-semibold text-white">{savingBusiness ? 'Saving…' : 'Save business details'}</Text>
-          </Pressable>
+          <View className="flex-row gap-2">
+            {/* Only when editing details already saved - there was no way to
+                back out of an edit without saving it. */}
+            {hasBusinessInfo && (
+              <Pressable
+                onPress={() => {
+                  setBizName(profile?.business_name ?? '');
+                  setBizReg(profile?.business_reg_no ?? '');
+                  setBizVat(profile?.business_vat_no ?? '');
+                  setBizAddress(profile?.business_address ?? '');
+                  setBizPhone(profile?.business_phone ?? '');
+                  setBizLogoPath(profile?.business_logo_path ?? null);
+                  setEditingBusiness(false);
+                }}
+                disabled={savingBusiness}
+                className="flex-1 items-center rounded-lg border border-gray-300 bg-white py-2.5 disabled:opacity-50"
+              >
+                <Text className="text-sm font-semibold text-gray-600">Cancel</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={handleSaveBusiness}
+              disabled={savingBusiness}
+              className="flex-1 items-center rounded-lg bg-blue-600 py-2.5 disabled:opacity-50"
+            >
+              <Text className="text-sm font-semibold text-white">{savingBusiness ? 'Saving…' : 'Save business details'}</Text>
+            </Pressable>
+          </View>
         </View>
       )}
 
@@ -555,28 +606,28 @@ export default function NewQuotation() {
               <View className="flex-row gap-2">
                 <TextInput
                   value={row.mrp}
-                  onChangeText={(v) => updateRow(index, { mrp: v })}
+                  onChangeText={(v) => updateRow(index, { mrp: decimalInput(v) })}
                   placeholder="MRP"
                   keyboardType="numeric"
                   className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
                 />
                 <TextInput
                   value={row.discount}
-                  onChangeText={(v) => updateRow(index, { discount: v })}
-                  placeholder="Discount"
+                  onChangeText={(v) => updateRow(index, { discount: decimalInput(v) })}
+                  placeholder="Disc./unit"
                   keyboardType="numeric"
                   className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
                 />
                 <TextInput
                   value={row.rate}
-                  onChangeText={(v) => updateRow(index, { rate: v })}
+                  onChangeText={(v) => updateRow(index, { rate: decimalInput(v) })}
                   placeholder="Rate"
                   keyboardType="numeric"
                   className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
                 />
                 <TextInput
                   value={row.qty}
-                  onChangeText={(v) => updateRow(index, { qty: v })}
+                  onChangeText={(v) => updateRow(index, { qty: digitsInput(v) })}
                   placeholder="Qty"
                   keyboardType="numeric"
                   className="w-16 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"

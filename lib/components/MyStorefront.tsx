@@ -9,6 +9,7 @@ import { SearchBar } from './SearchBar';
 import { SearchFilterSheet } from './SearchFilterSheet';
 import { ShopOverviewSection } from './ShopOverviewSection';
 import { filterBySearch } from '../utils/search';
+import { decimalInput } from '../utils/number';
 import { showAlert, getErrorMessage } from '../utils/alert';
 import { toSafeImageUri } from '../utils/image';
 import { LOW_STOCK_THRESHOLD } from '../constants/stock';
@@ -63,7 +64,7 @@ function EditablePrice({ item }: { item: Product }) {
       <View className="flex-row items-center gap-1.5">
         <TextInput
           value={price}
-          onChangeText={setPrice}
+          onChangeText={(v) => setPrice(decimalInput(v))}
           placeholder="Set price"
           keyboardType="decimal-pad"
           autoFocus={Number(item.price) > 0}

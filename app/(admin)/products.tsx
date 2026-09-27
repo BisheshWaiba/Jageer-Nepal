@@ -4,6 +4,7 @@ import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSupabaseQuery, useSupabaseUpdate, useSupabaseDelete } from '../../lib/hooks/useSupabase';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
+import { parseAmount } from '../../lib/utils/number';
 import type { Product } from '../../types/database.types';
 
 function ProductRow({ product, sellerName }: { product: Product; sellerName: string }) {
@@ -23,14 +24,19 @@ function ProductRow({ product, sellerName }: { product: Product; sellerName: str
   }
 
   async function handleSave() {
-    const priceNum = Number(price);
-    const stockNum = Number(stockLevel);
+    const priceNum = parseAmount(price);
+    const stockNum = stockLevel.trim() ? Number(stockLevel) : NaN;
     if (!name.trim()) {
       showAlert('Add a name', 'Product name is required.');
       return;
     }
-    if (Number.isNaN(priceNum) || priceNum < 0 || Number.isNaN(stockNum) || stockNum < 0) {
-      showAlert('Check the values', 'Price and stock must be valid numbers.');
+    // A blank price used to save as NPR 0, and stock could be fractional.
+    if (priceNum == null || priceNum < 0) {
+      showAlert('Check the price', 'Enter a price (0 or more).');
+      return;
+    }
+    if (!Number.isInteger(stockNum) || stockNum < 0) {
+      showAlert('Check the stock', 'Stock must be a whole number, 0 or more.');
       return;
     }
     setSaving(true);

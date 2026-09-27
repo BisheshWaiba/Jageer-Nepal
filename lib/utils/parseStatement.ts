@@ -1,5 +1,6 @@
 // lib/utils/parseStatement.ts
 import * as XLSX from 'xlsx';
+import { localTodayIso } from './localDate';
 
 export type StatementAction = 'payment_out' | 'expense' | 'withdraw' | 'payment_in' | 'deposit';
 
@@ -68,7 +69,7 @@ export function parseStatementWorkbook(base64: string): ParsedStatementRow[] {
     const { type, party } = classify(description, credit > 0 ? 'credit' : 'debit');
     out.push({
       referenceCode,
-      date: dateTime.slice(0, 10) || new Date().toISOString().slice(0, 10),
+      date: dateTime.slice(0, 10) || localTodayIso(),
       description,
       debit,
       credit,

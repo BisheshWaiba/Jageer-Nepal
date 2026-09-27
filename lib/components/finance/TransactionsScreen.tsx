@@ -28,10 +28,10 @@ import type {
   Product,
   VendorLedgerEntry,
 } from '../../../types/database.types';
+import { localTodayIso } from '../../utils/localDate';
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
+// Local date, not UTC - see localTodayIso.
+const todayIso = localTodayIso;
 
 interface ItemRowState {
   description: string;
@@ -63,6 +63,12 @@ function emptyExpenseRow(): ExpenseRow {
 
 function lineTotal(row: ItemRowState) {
   return (Number(row.qty) || 0) * (Number(row.rate) || 0);
+}
+
+/** A line that actually gets saved on the bill - the subtotal only counts
+ * these, so the saved total always matches the saved items. */
+function isSavableItem(row: ItemRowState) {
+  return !!row.description.trim() && Number(row.qty) > 0 && Number(row.rate) >= 0;
 }
 
 /** One item, one line: name (tap to pick/change the stocked product), a
@@ -599,7 +605,7 @@ function TransactionForm({
   const [saving, setSaving] = useState(false);
 
   const isBill = type !== 'expense';
-  const subtotal = items.reduce((sum, row) => sum + lineTotal(row), 0);
+  const subtotal = items.filter(isSavableItem).reduce((sum, row) => sum + lineTotal(row), 0);
   const discountAmount = Number(discountAmountInput) || 0;
   const discountPercentDisplay = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
   const vatAmount = Math.round(((subtotal - discountAmount) * (Number(vatPercent) || 0)) / 100);
@@ -731,7 +737,7 @@ function TransactionForm({
 
   async function handleSave() {
     if (isBill) {
-      const validItems = items.filter((r) => r.description.trim() && Number(r.qty) > 0 && Number(r.rate) >= 0);
+      const validItems = items.filter(isSavableItem);
       if (validItems.length === 0) {
         showAlert('Add at least one item', 'Enter a description, quantity, and rate for at least one item.');
         return;
@@ -994,6 +1000,12 @@ function TransactionForm({
           expense_category_id: row.categoryId,
           payment_mode: bankAccountId ? ('bank' as const) : ('cash' as const),
           bank_account_id: bankAccountId,
+        });
+        // Drop each row once saved, so a failure part-way leaves only the
+        // unsaved ones - saving again never records an expense twice.
+        setExpenseRows((prev) => {
+          const rest = prev.filter((r) => r.key !== row.key);
+          return rest.length ? rest : [emptyExpenseRow()];
         });
       }
       onDone();

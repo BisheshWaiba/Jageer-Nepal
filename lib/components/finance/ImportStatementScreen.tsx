@@ -69,7 +69,7 @@ export function ImportStatementScreen() {
       (r) => r.selected && (r.type === 'payment_in' || r.type === 'payment_out') && !r.party.trim()
     );
     if (missingParty) {
-      showAlert('Add a customer name', 'Every checked Payment In/Out row needs a name before it can be imported.');
+      showAlert('Add a name', 'Every checked Payment In/Out row needs a customer or vendor name before it can be imported.');
       return;
     }
     const { imported, failed } = await importSelected(rows, customers ?? []);
@@ -173,7 +173,7 @@ export function ImportStatementScreen() {
                             150
                           )
                         }
-                        placeholder={needsParty ? 'Customer name' : 'Name (optional)'}
+                        placeholder={item.type === 'payment_out' ? 'Vendor name' : needsParty ? 'Customer name' : 'Name (optional)'}
                         placeholderTextColor="#9CA3AF"
                         className="text-sm font-semibold text-gray-900"
                       />

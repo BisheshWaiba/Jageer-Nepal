@@ -11,10 +11,10 @@ import { BankAccountPickerModal } from './BankAccountPickerModal';
 import { DateField } from '../DateTimeFields';
 import { toBsHistoryLabel } from '../../utils/nepaliDate';
 import { showAlert, getErrorMessage } from '../../utils/alert';
+import { localTodayIso } from '../../utils/localDate';
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
+// Local date, not UTC - see localTodayIso.
+const todayIso = localTodayIso;
 
 /** One line of an account's ledger - what actually made up its balance.
  * Tapping it goes wherever that money movement can be edited: the

@@ -1,7 +1,7 @@
 // app/(client)/request-details.tsx
-import { useCallback, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Image } from 'react-native';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../lib/hooks/useAuth';
@@ -15,10 +15,21 @@ import { MapPreview } from '../../lib/components/MapPreview';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
 import { resizeImageForUpload } from '../../lib/utils/resizeImage';
 import { returnPathOr } from '../../lib/utils/returnPath';
+import { isPastDate } from '../../lib/utils/localDate';
 
 const PHOTO_SLOTS = 3;
 
-export default function RequestDetails() {
+export default function RequestDetailsScreen() {
+  const { n, category, action } = useLocalSearchParams<{ n?: string; category: string; action: string }>();
+  // This is a hidden tab screen, so it stays mounted between visits. Every
+  // "start a request" link passes a fresh `n`, and keying on it gives each
+  // new request a clean form - while switching to another tab mid-form and
+  // coming back (same `n`) keeps everything typed so far. (It used to reset
+  // on every focus, which wiped a half-filled form on a tab switch.)
+  return <RequestDetails key={n ?? `${category}|${action}`} />;
+}
+
+function RequestDetails() {
   // assistant* params arrive from the client-facing chat assistant (see
   // ClientAssistantChat) - applied once below, same "review before submit"
   // rule as everywhere else: this only fills fields, Submit is still a
@@ -53,28 +64,15 @@ export default function RequestDetails() {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // request-details is a hidden tab screen (see _layout.tsx), so React
-  // Navigation keeps this component instance mounted across visits instead
-  // of remounting it - without a reset, the previous request's date/time/
-  // address/photos/notes would stay in state and silently prefill the next
-  // request.
-  //
-  // The assistant prefill is applied in the same callback, right after the
-  // clear - a separate effect can run before the focus event and get wiped,
-  // and wouldn't re-run at all when the assistant sends identical details
-  // twice. The callback depends on the param values, so it also re-runs if
-  // Expo Router hydrates them a render late (see the Finance voice command's
-  // version of that bug).
-  useFocusEffect(
-    useCallback(() => {
-      setDate(assistantDate ?? '');
-      setTime(assistantTime ?? '');
-      setAddress(assistantAddress ?? '');
-      setCoords(null);
-      setPhotos(Array(PHOTO_SLOTS).fill(null));
-      setNotes(assistantNotes ?? '');
-    }, [assistantNotes, assistantDate, assistantTime, assistantAddress])
-  );
+  // The chat assistant's prefill - only fills fields, Submit is still a
+  // separate manual tap. Depends on the param values (not just mount) since
+  // Expo Router can hydrate them a render late.
+  useEffect(() => {
+    if (assistantDate) setDate(assistantDate);
+    if (assistantTime) setTime(assistantTime);
+    if (assistantAddress) setAddress(assistantAddress);
+    if (assistantNotes) setNotes(assistantNotes);
+  }, [assistantNotes, assistantDate, assistantTime, assistantAddress]);
 
   async function handlePickPhoto(index: number) {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -114,6 +112,10 @@ export default function RequestDetails() {
     }
     if (!date.trim() || !time.trim()) {
       showAlert('Add date and time', 'Let us know when you need this service.');
+      return;
+    }
+    if (isPastDate(date)) {
+      showAlert('Pick a future date', "The visit date can't be in the past.");
       return;
     }
     if (!address.trim() && !coords) {

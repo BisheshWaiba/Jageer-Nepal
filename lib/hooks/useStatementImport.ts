@@ -113,12 +113,28 @@ export function useStatementImport(ownerId: string | undefined) {
             expense_category_id: row.expenseCategoryId,
           });
           if (error) throw error;
-        } else if (row.type === 'payment_out' || row.type === 'payment_in') {
+        } else if (row.type === 'payment_in') {
           const customer = await resolveCustomer(row.party || 'Unknown');
           const { error } = await (supabase.from('customer_ledger_entries') as any).insert({
             customer_id: customer.id,
             owner_id: ownerId,
-            entry_type: row.type === 'payment_out' ? 'debit' : 'credit',
+            entry_type: 'credit',
+            amount,
+            note: row.description,
+            source: 'manual',
+            entry_date: row.date,
+          });
+          if (error) throw error;
+        } else if (row.type === 'payment_out') {
+          // Money paid out settles what you owe a vendor - the same
+          // vendor-ledger credit Quick Payment's Payment Out records. Booking
+          // it as a customer debit inflated "To Receive" for people you only
+          // ever paid.
+          const vendor = await resolveCustomer(row.party || 'Unknown');
+          const { error } = await (supabase.from('vendor_ledger_entries') as any).insert({
+            vendor_id: vendor.id,
+            owner_id: ownerId,
+            entry_type: 'credit',
             amount,
             note: row.description,
             source: 'manual',
@@ -142,6 +158,7 @@ export function useStatementImport(ownerId: string | undefined) {
     if (imported > 0) {
       queryClient.invalidateQueries({ queryKey: ['business_transactions'] });
       queryClient.invalidateQueries({ queryKey: ['customer_ledger_entries'] });
+      queryClient.invalidateQueries({ queryKey: ['vendor_ledger_entries'] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
     }
     setImporting(false);

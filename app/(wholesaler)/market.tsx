@@ -7,6 +7,7 @@ import { useAuthStore } from '../../lib/hooks/useAuth';
 import { useSupabaseInsert } from '../../lib/hooks/useSupabase';
 import { pickAndUploadCatalogImage } from '../../lib/utils/catalogImage';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
+import { parseAmount, decimalInput, digitsInput } from '../../lib/utils/number';
 
 function CreateProductForm({ onDone }: { onDone: () => void }) {
   const userId = useAuthStore((state) => state.session?.user.id);
@@ -38,12 +39,17 @@ function CreateProductForm({ onDone }: { onDone: () => void }) {
       showAlert('Add a name', 'Product name is required.');
       return;
     }
-    const priceNum = parseFloat(price);
-    if (Number.isNaN(priceNum) || priceNum <= 0) {
+    // Strict parsing - parseFloat("12abc") used to accept 12.
+    const priceNum = parseAmount(price);
+    if (priceNum == null || priceNum <= 0) {
       showAlert('Set a price', 'Enter a valid price before submitting.');
       return;
     }
-    const stockNum = parseInt(stock, 10);
+    const stockNum = stock.trim() ? Number(stock) : 0;
+    if (!Number.isInteger(stockNum) || stockNum < 0) {
+      showAlert('Check the stock', 'Starting stock must be a whole number, 0 or more.');
+      return;
+    }
     try {
       await insertItem.mutateAsync({
         name: name.trim(),
@@ -53,7 +59,7 @@ function CreateProductForm({ onDone }: { onDone: () => void }) {
         is_active: false,
         submitted_by: userId,
         pending_price: priceNum,
-        pending_stock: Number.isNaN(stockNum) ? 0 : stockNum,
+        pending_stock: stockNum,
       });
       showAlert(
         'Submitted for review',
@@ -107,7 +113,7 @@ function CreateProductForm({ onDone }: { onDone: () => void }) {
           <Text className="mb-1 text-sm font-medium text-gray-700">Your price to resellers (NPR)</Text>
           <TextInput
             value={price}
-            onChangeText={setPrice}
+            onChangeText={(v) => setPrice(decimalInput(v))}
             placeholder="0.00"
             keyboardType="decimal-pad"
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
@@ -117,7 +123,7 @@ function CreateProductForm({ onDone }: { onDone: () => void }) {
           <Text className="mb-1 text-sm font-medium text-gray-700">Starting stock</Text>
           <TextInput
             value={stock}
-            onChangeText={setStock}
+            onChangeText={(v) => setStock(digitsInput(v))}
             placeholder="0"
             keyboardType="number-pad"
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm"

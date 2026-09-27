@@ -4,6 +4,7 @@ import { View, Text, TextInput, Pressable, Image, Switch } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../hooks/useAuth';
 import { useSupabaseQuery, useSupabaseUpsert, useSupabaseUpdate } from '../hooks/useSupabase';
+import { digitsInput, decimalInput } from '../utils/number';
 import { showAlert, getErrorMessage } from '../utils/alert';
 import { filterBySearch } from '../utils/search';
 import { toSafeImageUri } from '../utils/image';
@@ -158,7 +159,18 @@ function StockRow({
             <Pressable onPress={() => setQty((q) => Math.max(0, q - 1))} className="px-2 py-1.5">
               <Text className="text-base text-gray-500">−</Text>
             </Pressable>
-            <Text className="w-6 text-center text-sm font-semibold text-gray-900">{qty}</Text>
+            {/* Typeable, not just +/-: bulk stock (e.g. 500 units) used to
+                take one tap per unit, and the fixed w-6 box clipped 3+
+                digit numbers. */}
+            <TextInput
+              value={String(qty)}
+              onChangeText={(v) => setQty(Number(digitsInput(v)) || 0)}
+              keyboardType="number-pad"
+              selectTextOnFocus
+              accessibilityLabel="Quantity"
+              className="min-w-[36px] px-1 py-1 text-center text-sm font-semibold text-gray-900"
+              style={{ width: Math.max(36, String(qty).length * 10 + 16) }}
+            />
             <Pressable onPress={() => setQty((q) => q + 1)} className="px-2 py-1.5">
               <Text className="text-base text-gray-500">+</Text>
             </Pressable>
@@ -167,7 +179,7 @@ function StockRow({
 
         <TextInput
           value={price}
-          onChangeText={setPrice}
+          onChangeText={(v) => setPrice(decimalInput(v))}
           placeholder={priceLabel}
           keyboardType="decimal-pad"
           editable={!nothingPurchased}

@@ -18,7 +18,7 @@ export default function NewRequest() {
 
   function goToDetails(category: string, action: (typeof SERVICE_ACTIONS)[number]) {
     router.push(
-      `/(client)/request-details?category=${encodeURIComponent(category)}&action=${encodeURIComponent(action)}` +
+      `/(client)/request-details?category=${encodeURIComponent(category)}&action=${encodeURIComponent(action)}&n=${Date.now()}` +
         (from ? `&from=${encodeURIComponent(from)}` : '')
     );
   }

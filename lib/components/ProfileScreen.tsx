@@ -31,6 +31,8 @@ import { supabase } from '../supabase';
 import { ROLE_ACCENT } from '../constants/roleColors';
 import { showAlert, getErrorMessage } from '../utils/alert';
 import { resizeImageForUpload } from '../utils/resizeImage';
+import { isValidPhone10 } from '../utils/phone';
+import { digitsInput } from '../utils/number';
 import { isBiometricHardwareReady, authenticateWithBiometrics } from '../utils/biometric';
 import type { Profile, UserRole } from '../../types/database.types';
 
@@ -223,10 +225,18 @@ function ProfileDetails({ profile }: { profile: Profile }) {
   }
 
   async function handleSave() {
+    if (!fullName.trim()) {
+      showAlert('Add your name', "Your name can't be left blank - it's how customers and resellers see you.");
+      return;
+    }
+    if (phone.trim() && !isValidPhone10(phone)) {
+      showAlert('Check the phone number', 'Enter a 10-digit phone number, or leave it blank.');
+      return;
+    }
     setSaving(true);
     try {
       const values = {
-        full_name: fullName.trim() || null,
+        full_name: fullName.trim(),
         city: address.trim() || null,
         phone: phone.trim() || null,
       };
@@ -291,9 +301,10 @@ function ProfileDetails({ profile }: { profile: Profile }) {
       <Text className="mb-1 text-xs font-medium text-gray-500">Contact</Text>
       <TextInput
         value={phone}
-        onChangeText={setPhone}
-        placeholder="Phone number"
+        onChangeText={(v) => setPhone(digitsInput(v))}
+        placeholder="98XXXXXXXX"
         keyboardType="phone-pad"
+        maxLength={10}
         className="mb-4 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
       />
 
@@ -622,7 +633,10 @@ function ReportIssueRow({ userId }: { userId: string }) {
   const insertTicket = useSupabaseInsert('support_tickets');
 
   async function handleSubmit() {
-    if (!subject.trim()) return;
+    if (!subject.trim()) {
+      showAlert('Describe the issue', "Tell us what's going wrong so we can look into it.");
+      return;
+    }
     try {
       await insertTicket.mutateAsync({ user_id: userId, subject: subject.trim() });
       setSubject('');
@@ -638,7 +652,7 @@ function ReportIssueRow({ userId }: { userId: string }) {
       <GroupRow
         icon="help-buoy-outline"
         label="Report an Issue / Support"
-        caption="24/7 help desk"
+        caption="Tell us what's going wrong"
         onPress={() => setOpen(true)}
       />
     );

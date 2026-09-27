@@ -168,7 +168,7 @@ export function ClientAssistantChat({ basePath }: { basePath: string }) {
     const query = extra.length ? `&${extra.join('&')}` : '';
     close();
     router.push(
-      `${basePath}/request-details?category=${encodeURIComponent(lastResult.category)}&action=${encodeURIComponent(lastResult.action)}${query}` as any
+      `${basePath}/request-details?category=${encodeURIComponent(lastResult.category)}&action=${encodeURIComponent(lastResult.action)}&n=${Date.now()}${query}` as any
     );
   }
 

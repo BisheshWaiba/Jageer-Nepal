@@ -4,6 +4,7 @@ import { View, Text, TextInput, Pressable, ScrollView, Image } from 'react-nativ
 import { useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../hooks/useAuth';
 import { useSupabaseRow, useSupabaseQuery, useSupabaseUpsert } from '../hooks/useSupabase';
+import { decimalInput } from '../utils/number';
 import { showAlert, getErrorMessage } from '../utils/alert';
 import { toSafeImageUri } from '../utils/image';
 
@@ -172,7 +173,7 @@ export function CatalogProductDetail({
             <Text className="mb-1 text-[11px] text-gray-400">{priceLabel} (NPR)</Text>
             <TextInput
               value={price}
-              onChangeText={setPrice}
+              onChangeText={(v) => setPrice(decimalInput(v))}
               placeholder="0.00"
               keyboardType="decimal-pad"
               editable={!nothingPurchased}

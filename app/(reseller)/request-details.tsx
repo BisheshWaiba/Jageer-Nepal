@@ -1,5 +1,5 @@
 // app/(reseller)/request-details.tsx
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   Modal,
   useWindowDimensions,
 } from 'react-native';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../lib/hooks/useAuth';
@@ -29,11 +29,24 @@ import { returnPathOr } from '../../lib/utils/returnPath';
 import { pickPhoneContact } from '../../lib/utils/pickPhoneContact';
 import { usePhoneContacts } from '../../lib/hooks/usePhoneContacts';
 import { ContactPickerModal } from '../../lib/components/ContactPickerModal';
+import { isValidPhone10 } from '../../lib/utils/phone';
+import { isPastDate } from '../../lib/utils/localDate';
+import { parseAmount, digitsInput } from '../../lib/utils/number';
 import type { Customer } from '../../types/database.types';
 
 const PHOTO_SLOTS = 3;
 
-export default function ResellerRequestDetails() {
+export default function ResellerRequestDetailsScreen() {
+  const { n, category, action } = useLocalSearchParams<{ n?: string; category: string; action: string }>();
+  // A hidden tab screen stays mounted between visits: every "new request"
+  // link passes a fresh `n`, and keying on it gives each request a clean
+  // form while a tab switch (or "Change" service, which hands `n` back) keeps
+  // what's already filled in. It used to reset on every focus, which wiped
+  // a half-filled form on a tab switch or a service change.
+  return <ResellerRequestDetails key={n ?? `${category}|${action}`} formKey={n ?? ''} />;
+}
+
+function ResellerRequestDetails({ formKey }: { formKey: string }) {
   const { category, action, from } = useLocalSearchParams<{ category: string; action: string; from?: string }>();
   // Back to whichever tab opened this form, not always Requests.
   const returnPath = returnPathOr('/(reseller)', from, 'requests');
@@ -85,14 +98,23 @@ export default function ResellerRequestDetails() {
     setCustomerId(customer.id);
     setCustomerName(customer.name);
     setCustomerPhone(customer.phone ?? '');
-    if (customer.address) setAddress(customer.address);
-    if (customer.latitude != null && customer.longitude != null) {
-      setCoords({ latitude: customer.latitude, longitude: customer.longitude });
-    }
+    // Always take the picked customer's own location, even when it's empty -
+    // keeping the previous pick's address would book (and save back to this
+    // customer's record) someone else's location.
+    setAddress(customer.address ?? '');
+    setCoords(
+      customer.latitude != null && customer.longitude != null
+        ? { latitude: customer.latitude, longitude: customer.longitude }
+        : null
+    );
   }
 
   async function handleRegisterNow() {
     if (!userId || !customerName.trim()) return;
+    if (customerPhone.trim() && !isValidPhone10(customerPhone)) {
+      showAlert('Check the phone number', "Enter the customer's 10-digit phone number first.");
+      return;
+    }
     if (!address.trim() && !coords) {
       showAlert('Add a location first', "Add the customer's location before registering them.");
       return;
@@ -144,6 +166,10 @@ export default function ResellerRequestDetails() {
       showAlert('Add a name', "Enter the customer's name to save them.");
       return;
     }
+    if (newCustPhone.trim() && !isValidPhone10(newCustPhone)) {
+      showAlert('Check the phone number', 'Enter a 10-digit phone number, or leave it blank.');
+      return;
+    }
     setSavingNewCustomer(true);
     try {
       const created = await createCustomer.mutateAsync({
@@ -185,32 +211,6 @@ export default function ResellerRequestDetails() {
     setPhotos((prev) => prev.map((p, i) => (i === index ? null : p)));
   }
 
-  // request-details is a hidden tab screen (see _layout.tsx), so React
-  // Navigation keeps this component instance mounted across visits instead
-  // of remounting it - without a reset, the previous request's customer,
-  // date/time, address/photos/notes, and price would stay in state and
-  // silently prefill the next request. Resetting on submit alone isn't
-  // enough: cancelling out of a filled form leaves the same stale state
-  // for the next visit, so this resets on every focus instead - screen
-  // pickers/permission dialogs (photo, location, contacts) don't blur a
-  // Tabs screen, so an in-progress fill is never wiped out from under it.
-  useFocusEffect(
-    useCallback(() => {
-      setCustomerId(null);
-      setCustomerName('');
-      setCustomerPhone('');
-      setCompanyName('');
-      setCompanySameAsCustomer(false);
-      setDate('');
-      setTime('');
-      setAddress('');
-      setCoords(null);
-      setPhotos(Array(PHOTO_SLOTS).fill(null));
-      setNotes('');
-      setQuotedPrice('');
-    }, [])
-  );
-
   async function uploadPhoto(uri: string, index: number): Promise<string> {
     const arraybuffer = await fetch(uri).then((res) => res.arrayBuffer());
     const path = `${userId}/${Date.now()}-${index}.jpg`;
@@ -230,16 +230,24 @@ export default function ResellerRequestDetails() {
       showAlert('Add customer details', "Enter the customer's name and phone so the technician can reach them.");
       return;
     }
+    if (!isValidPhone10(customerPhone)) {
+      showAlert('Check the phone number', "Enter the customer's 10-digit phone number.");
+      return;
+    }
     if (!date.trim() || !time.trim()) {
       showAlert('Add date and time', 'Let us know when you need this service.');
+      return;
+    }
+    if (isPastDate(date)) {
+      showAlert('Pick a future date', "The visit date can't be in the past.");
       return;
     }
     if (!address.trim() && !coords) {
       showAlert('Add a location', 'Use your current location or type an address.');
       return;
     }
-    const price = quotedPrice.trim() ? Number(quotedPrice) : null;
-    if (price != null && (Number.isNaN(price) || price <= 0)) {
+    const price = parseAmount(quotedPrice);
+    if (quotedPrice.trim() && (price == null || price <= 0)) {
       showAlert('Invalid price', 'Enter a valid price in NPR, or leave it blank if you don\'t know it yet.');
       return;
     }
@@ -312,7 +320,7 @@ export default function ResellerRequestDetails() {
 
   const missing: string[] = [];
   if (!customerName.trim()) missing.push('customer');
-  if (!customerPhone.trim()) missing.push('phone');
+  if (!isValidPhone10(customerPhone)) missing.push(customerPhone.trim() ? '10-digit phone' : 'phone');
   if (!address.trim() && !coords) missing.push('location');
   if (!date.trim() || !time.trim()) missing.push('date & time');
   const missingText = missing.join(', ').replace(/^./, (ch) => ch.toUpperCase());
@@ -321,7 +329,9 @@ export default function ResellerRequestDetails() {
 
   function changeService() {
     router.replace(
-      `/(reseller)/new-request?category=${encodeURIComponent(category ?? '')}` + (from ? `&from=${encodeURIComponent(from)}` : '')
+      `/(reseller)/new-request?category=${encodeURIComponent(category ?? '')}` +
+        (formKey ? `&keep=${encodeURIComponent(formKey)}` : '') +
+        (from ? `&from=${encodeURIComponent(from)}` : '')
     );
   }
 
@@ -453,9 +463,10 @@ export default function ResellerRequestDetails() {
             <Text className="mb-1.5 text-sm font-medium text-gray-700">Customer phone</Text>
             <TextInput
               value={customerPhone}
-              onChangeText={setCustomerPhone}
+              onChangeText={(v) => setCustomerPhone(digitsInput(v))}
               placeholder="98XXXXXXXX"
               keyboardType="phone-pad"
+              maxLength={10}
               className="rounded-lg border border-gray-300 bg-white px-4 py-3 text-base"
             />
 
@@ -550,7 +561,8 @@ export default function ResellerRequestDetails() {
               />
             </View>
             <Text className="mt-2 text-xs leading-5 text-gray-400">
-              The customer still approves the price before you can assign a technician.
+              This is your own customer, so the price is yours to agree with them - you can assign a technician
+              straight away.
             </Text>
           </NumberedCard>
         </View>
@@ -586,7 +598,7 @@ export default function ResellerRequestDetails() {
             {missing.length
               ? missingText
               : quotedPrice.trim()
-                ? 'Customer approves the price first'
+                ? 'Ready to assign a technician'
                 : 'You can add a price later'}
           </Text>
         </View>
@@ -644,9 +656,10 @@ export default function ResellerRequestDetails() {
             <Text className="mb-1 text-xs font-medium text-gray-600">Contact no.</Text>
             <TextInput
               value={newCustPhone}
-              onChangeText={setNewCustPhone}
+              onChangeText={(v) => setNewCustPhone(digitsInput(v))}
               placeholder="98XXXXXXXX"
               keyboardType="phone-pad"
+              maxLength={10}
               className="mb-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
             />
             <Text className="mb-1 text-xs font-medium text-gray-600">Location</Text>

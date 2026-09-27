@@ -458,6 +458,14 @@ function AddVendorEntryForm({
 
 export function CustomerDetailScreen({ basePath }: { basePath: string }) {
   const { id } = useLocalSearchParams<{ id: string }>();
+  // Hidden tab screens stay mounted between visits, so opening another
+  // record reused this one's component state (typed quote/remark/price, a
+  // "thanks for rating" flag, an open edit form...). Keying on the id gives
+  // every record its own fresh state.
+  return <CustomerDetail key={id} id={id} basePath={basePath} />;
+}
+
+function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
   const userId = useAuthStore((state) => state.session?.user.id);
   const { data: entries } = useSupabaseQuery('customer_ledger_entries', {
     filters: { customer_id: id },

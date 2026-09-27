@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { useAuthStore } from '../hooks/useAuth';
 import { useSupabaseInsert, subscribeToTable } from '../hooks/useSupabase';
+import { showAlert, getErrorMessage } from '../utils/alert';
 import type { Message, MessageSubjectType } from '../../types/database.types';
 
 interface ChatThreadProps {
@@ -46,12 +47,19 @@ export function ChatThread({ subjectType, subjectId, focusToken }: ChatThreadPro
     if (!userId || !body.trim()) return;
     const text = body.trim();
     setBody('');
-    await insertMessage.mutateAsync({
-      subject_type: subjectType,
-      subject_id: subjectId,
-      sender_id: userId,
-      body: text,
-    });
+    try {
+      await insertMessage.mutateAsync({
+        subject_type: subjectType,
+        subject_id: subjectId,
+        sender_id: userId,
+        body: text,
+      });
+    } catch (err) {
+      // Put the message back so a failed send doesn't lose what was typed.
+      setBody((current) => current || text);
+      showAlert('Message not sent', getErrorMessage(err));
+      return;
+    }
     // Realtime only tells us about other people's messages once the table is
     // published, and never covers our own optimistically - reload so the
     // message you just sent shows up straight away either way.

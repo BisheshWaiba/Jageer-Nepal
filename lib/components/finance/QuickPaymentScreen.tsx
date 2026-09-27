@@ -16,10 +16,10 @@ import { FormSection } from './FormSection';
 import { showAlert, getErrorMessage } from '../../utils/alert';
 import { toBsLabel, toBsHistoryLabel } from '../../utils/nepaliDate';
 import type { Customer } from '../../../types/database.types';
+import { localTodayIso } from '../../utils/localDate';
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
+// Local date, not UTC - see localTodayIso.
+const todayIso = localTodayIso;
 
 let rowKeySeq = 0;
 function makeRowKey() {
@@ -40,6 +40,14 @@ function emptyPaymentRow(): PaymentRow {
 }
 
 export function QuickPaymentScreen() {
+  const { type } = useLocalSearchParams<{ type?: string }>();
+  // Received and Payment Out are the same (kept-mounted) route with a
+  // different ?type - key the form on it so a half-filled Received form
+  // never carries over into Payment Out and gets saved the wrong way round.
+  return <QuickPaymentForm key={type === 'out' ? 'out' : 'in'} />;
+}
+
+function QuickPaymentForm() {
   // voice* params arrive from the Finance dashboard's voice-command button,
   // routed here the same way a Shortcuts tap is (?type=in/out) - applied
   // once on mount below, same "review before save" rule as Scan Bill.
@@ -340,6 +348,18 @@ export function QuickPaymentScreen() {
 
   async function handleSaveAll() {
     if (!userId) return;
+    // A row with a name but no valid amount (or an amount but no name) used
+    // to be dropped silently - point it out instead of saving without it.
+    const incomplete = rows.filter(
+      (r) => (r.customerName.trim() || r.amount.trim()) && !(r.customerName.trim() && Number(r.amount) > 0)
+    );
+    if (incomplete.length > 0) {
+      showAlert(
+        'Finish every row',
+        `${incomplete.length} ${incomplete.length === 1 ? 'row needs' : 'rows need'} both a person and an amount above 0 - fill it in or remove it.`
+      );
+      return;
+    }
     const validRows = rows.filter((r) => r.customerName.trim() && Number(r.amount) > 0);
     if (validRows.length === 0) {
       showAlert('Add a payment', 'Add at least one person and a valid amount to record.');
@@ -347,10 +367,17 @@ export function QuickPaymentScreen() {
     }
     setSaving(true);
     try {
+      // Each row leaves the table the moment it's saved (and a customer
+      // created for it is kept on the row first), so if a later row fails,
+      // pressing Save again only retries what's left - never re-records the
+      // ones already saved or creates their customer twice.
       for (const row of validRows) {
         const trimmedName = row.customerName.trim();
-        const customer =
-          row.selectedCustomer ?? (await createCustomer.mutateAsync({ owner_id: userId, name: trimmedName, phone: null }));
+        let customer = row.selectedCustomer;
+        if (!customer) {
+          customer = await createCustomer.mutateAsync({ owner_id: userId, name: trimmedName, phone: null });
+          updateRow(row.key, { selectedCustomer: customer, customerName: customer.name });
+        }
         await insertEntry.mutateAsync({
           [payTarget === 'vendor' ? 'vendor_id' : 'customer_id']: customer.id,
           owner_id: userId,
@@ -362,6 +389,10 @@ export function QuickPaymentScreen() {
           entry_date: date || null,
           receipt_no: receiptNo.trim() || null,
         } as any);
+        setRows((prev) => {
+          const rest = prev.filter((r) => r.key !== row.key);
+          return rest.length ? rest : [emptyPaymentRow()];
+        });
       }
       showAlert(
         isOut ? 'Payments out recorded' : 'Payments in recorded',

@@ -133,7 +133,7 @@ export default function ClientDashboard() {
           const category = pickerCategory.label;
           setPickerCategory(null);
           router.push(
-            `/(client)/request-details?category=${encodeURIComponent(category)}&action=${encodeURIComponent(action)}`
+            `/(client)/request-details?category=${encodeURIComponent(category)}&action=${encodeURIComponent(action)}&n=${Date.now()}`
           );
         }}
       />

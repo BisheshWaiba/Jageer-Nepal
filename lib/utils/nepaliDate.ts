@@ -1,5 +1,6 @@
 // lib/utils/nepaliDate.ts
 import NepaliDate, { dateConfigMap } from 'nepali-date-converter';
+import { localTodayIso } from './localDate';
 
 // Same order as NepaliDate's 0-based month index and the dateConfigMap keys.
 export const BS_MONTHS = [
@@ -105,7 +106,7 @@ export function adStringToBs(adDateStr: string): BsDate | null {
  * so callers that need a definite grid position (e.g. a picker's initial
  * state) can never end up with an invalid year/month. */
 export function adStringToBsOrToday(adDateStr: string): BsDate {
-  return adStringToBs(adDateStr) ?? adStringToBs(new Date().toISOString().slice(0, 10))!;
+  return adStringToBs(adDateStr) ?? adStringToBs(localTodayIso())!;
 }
 
 /** BS calendar fields -> the 'YYYY-MM-DD' AD string every date is stored as. */

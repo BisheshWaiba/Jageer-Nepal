@@ -24,7 +24,10 @@ export default function ResellerNewRequest() {
   // `from` is the tab this form was opened from, carried through to the
   // details step so finishing (or cancelling) lands back there - see
   // returnPathOr in lib/utils/returnPath.ts.
-  const { category: presetCategory, from } = useLocalSearchParams<{ category?: string; from?: string }>();
+  // `keep` is set when the details form sent us here via "Change" - handing
+  // its form key back means only the service changes and everything already
+  // filled in stays; otherwise a fresh key starts a clean form.
+  const { category: presetCategory, from, keep } = useLocalSearchParams<{ category?: string; from?: string; keep?: string }>();
   const { width } = useWindowDimensions();
   const isWideWeb = Platform.OS === 'web' && width >= WEB_SIDEBAR_MIN_WIDTH;
   const columns = gridColumns(width, isWideWeb);
@@ -48,6 +51,7 @@ export default function ResellerNewRequest() {
   function goToDetails(category: string) {
     router.push(
       `/(reseller)/request-details?category=${encodeURIComponent(category)}&action=${encodeURIComponent(action)}` +
+        `&n=${encodeURIComponent(keep || String(Date.now()))}` +
         (from ? `&from=${encodeURIComponent(from)}` : '')
     );
   }

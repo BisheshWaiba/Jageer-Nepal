@@ -25,6 +25,9 @@ function formatDateValue(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+// Shared trigger height for DateField and TimeField.
+const FIELD_MIN_HEIGHT = 50;
+
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const AD_MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -280,11 +283,14 @@ export function DateField({ value, onChange }: { value: string; onChange: (v: st
 
   return (
     <View>
+      {/* Same height and placeholder style as TimeField, so the two line up
+          when they sit side by side (they didn't while the date was empty). */}
       <Pressable
         onPress={openPicker}
-        className="rounded-lg border border-gray-300 bg-white px-3 py-2"
+        className="justify-center rounded-lg border border-gray-300 bg-white px-3 py-1.5"
+        style={{ minHeight: FIELD_MIN_HEIGHT }}
       >
-        <Text className={value ? 'text-xs font-bold text-gray-900' : 'text-xs font-bold text-gray-400'}>
+        <Text className={value ? 'text-xs font-bold text-gray-900' : 'text-base text-gray-400'}>
           {value ? dateLabels(value, mode)[0] : 'Select a date'}
         </Text>
         {!!value && <Text className="mt-0.5 text-[10px] text-gray-500">{dateLabels(value, mode)[1]}</Text>}
@@ -419,7 +425,8 @@ export function TimeField({ value, onChange }: { value: string; onChange: (v: st
     <View>
       <Pressable
         onPress={() => setShowPicker(true)}
-        className="rounded-lg border border-gray-300 bg-white px-4 py-3"
+        className="justify-center rounded-lg border border-gray-300 bg-white px-4"
+        style={{ minHeight: FIELD_MIN_HEIGHT }}
       >
         <Text className={value ? 'text-base text-gray-900' : 'text-base text-gray-400'}>
           {value || 'Select a time'}

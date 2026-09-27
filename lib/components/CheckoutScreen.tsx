@@ -2,12 +2,11 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '../supabase';
 import { useAuthStore } from '../hooks/useAuth';
 import { useCartStore } from '../hooks/useCart';
-import { useSupabaseInsert } from '../hooks/useSupabase';
 import { showAlert, getErrorMessage } from '../utils/alert';
-
-const PLATFORM_FEE_RATE = 0.075;
 
 export function CheckoutScreen({ redirectTo }: { redirectTo: string }) {
   const userId = useAuthStore((state) => state.session?.user.id);
@@ -20,12 +19,9 @@ export function CheckoutScreen({ redirectTo }: { redirectTo: string }) {
   const [city, setCity] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const insertOrder = useSupabaseInsert('orders');
-  const insertOrderItem = useSupabaseInsert('order_items');
+  const queryClient = useQueryClient();
 
   const total = items.reduce((sum, i) => sum + Number(i.product.price) * i.quantity, 0);
-  const platformFee = Math.round(total * PLATFORM_FEE_RATE);
-  const sellerPayout = total - platformFee;
 
   async function handlePlaceOrder() {
     if (!userId || !sellerId || items.length === 0) return;
@@ -36,25 +32,17 @@ export function CheckoutScreen({ redirectTo }: { redirectTo: string }) {
 
     setSubmitting(true);
     try {
-      const order = await insertOrder.mutateAsync({
-        buyer_id: userId,
-        seller_id: sellerId,
-        total_amount: total,
-        platform_fee: platformFee,
-        seller_payout: sellerPayout,
-        payment_method: 'cash_on_delivery',
-        shipping_address: { address: address.trim(), city: city.trim() },
-        status: 'pending',
+      // One server-side transaction (migration 0078): the order and all its
+      // lines are saved together or not at all, so a failure can never
+      // leave a half-filled order behind for a retry to duplicate.
+      const { error } = await (supabase as any).rpc('place_order', {
+        p_seller_id: sellerId,
+        p_items: items.map((item) => ({ product_id: item.product.id, quantity: item.quantity })),
+        p_shipping: { address: address.trim(), city: city.trim() },
       });
-
-      for (const item of items) {
-        await insertOrderItem.mutateAsync({
-          order_id: order.id,
-          product_id: item.product.id,
-          quantity: item.quantity,
-          unit_price: item.product.price,
-        });
-      }
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['order_items'] });
 
       clearCart();
       showAlert('Order placed', 'The seller will confirm your order shortly.');

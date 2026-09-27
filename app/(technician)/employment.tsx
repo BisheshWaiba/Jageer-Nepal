@@ -14,6 +14,7 @@ import {
 import { TimeField } from '../../lib/components/DateTimeFields';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
 import { isValidPhone10 } from '../../lib/utils/phone';
+import { workHoursIssue } from '../../lib/utils/workHours';
 
 function ApplyForm({ technicianId }: { technicianId: string }) {
   const [phone, setPhone] = useState('');
@@ -25,6 +26,11 @@ function ApplyForm({ technicianId }: { technicianId: string }) {
 
   async function handleApply() {
     const trimmed = phone.trim();
+    const hoursIssue = workHoursIssue(workStart, workEnd);
+    if (hoursIssue) {
+      showAlert('Check the work hours', hoursIssue);
+      return;
+    }
     if (!isValidPhone10(trimmed)) {
       showAlert('Check the phone number', "Enter the reseller's 10-digit phone number.");
       return;
@@ -54,9 +60,9 @@ function ApplyForm({ technicianId }: { technicianId: string }) {
     <View className="rounded-2xl border border-gray-200 bg-white p-4">
       <Text className="mb-1 text-base font-semibold text-gray-900">Work for a reseller</Text>
       <Text className="mb-4 text-xs text-gray-500">
-        Send a request to become a reseller's employee technician. Once accepted, they can assign you jobs
-        directly with no accept step, and you won't be offered outsource work from other resellers during your
-        declared work hours.
+        Send a request to become a reseller's employee technician. Once accepted, they can send you jobs
+        straight from their team page (you still accept each one), and you won't be offered outsource work from
+        other resellers during your declared work hours.
       </Text>
 
       <Text className="mb-1 text-xs font-medium text-gray-600">Reseller's phone number</Text>

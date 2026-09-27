@@ -29,6 +29,7 @@ import {
   type TimelineStep,
 } from '../../../lib/components/detail/DetailLayout';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
+import { parseAmount } from '../../../lib/utils/number';
 import { assignTechnician, showJobSentAlert } from '../../../lib/utils/assignTechnician';
 import { reopenCompletedJob, withdrawJobOffer, claimServiceRequest } from '../../../lib/hooks/useJobOffers';
 import { respondToJobHold } from '../../../lib/hooks/useJobHold';
@@ -551,8 +552,8 @@ function SelfSourcedAssign({ request, userId }: { request: ServiceRequest; userI
   const [chatFocus, setChatFocus] = useState(0);
 
   async function handleAssign(technicianId: string) {
-    const price = quotedPrice.trim() ? Number(quotedPrice) : null;
-    if (price != null && (Number.isNaN(price) || price <= 0)) {
+    const price = parseAmount(quotedPrice);
+    if (quotedPrice.trim() && (price == null || price <= 0)) {
       showAlert('Invalid price', 'Enter a valid price in NPR, or leave it blank.');
       return;
     }
@@ -705,8 +706,8 @@ function SendQuote({ request, userId }: { request: ServiceRequest; userId: strin
   const [chatFocus, setChatFocus] = useState(0);
 
   async function handleSendQuote() {
-    const price = Number(quotedPrice);
-    if (!quotedPrice.trim() || Number.isNaN(price) || price <= 0) {
+    const price = parseAmount(quotedPrice);
+    if (price == null || price <= 0) {
       showAlert('Add a price', "Enter what you'd charge the customer before sending the quote.");
       return;
     }
@@ -919,8 +920,16 @@ function ChooseTechnician({ request, userId }: { request: ServiceRequest; userId
   );
 }
 
-export default function ResellerRequestDetail() {
+export default function ResellerRequestDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  // Hidden tab screens stay mounted between visits, so opening another
+  // record reused this one's component state (typed quote/remark/price, a
+  // "thanks for rating" flag, an open edit form...). Keying on the id gives
+  // every record its own fresh state.
+  return <ResellerRequestDetail key={id} id={id} />;
+}
+
+function ResellerRequestDetail({ id }: { id: string }) {
   const userId = useAuthStore((state) => state.session?.user.id);
   const { data: request, isLoading: loadingRequest } = useSupabaseRow('service_requests', id);
 

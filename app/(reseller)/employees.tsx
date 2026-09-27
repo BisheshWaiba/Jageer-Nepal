@@ -24,6 +24,7 @@ import { AssignJobSheet } from '../../lib/components/AssignJobToEmployee';
 import { useWideDetail } from '../../lib/components/detail/DetailLayout';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
 import { isValidPhone10 } from '../../lib/utils/phone';
+import { workHoursIssue } from '../../lib/utils/workHours';
 import type { ManualEmployee, Profile, TechnicianEmployment } from '../../types/database.types';
 
 const BLUE = '#2563EB';
@@ -420,6 +421,11 @@ export default function TechnicalEmployees() {
 
   async function handleInvite() {
     if (!userId) return;
+    const hoursIssue = workHoursIssue(inviteStart, inviteEnd);
+    if (hoursIssue) {
+      showAlert('Check the work hours', hoursIssue);
+      return;
+    }
     setSending(true);
     try {
       let technician = selected;
@@ -466,6 +472,11 @@ export default function TechnicalEmployees() {
 
   async function handleAddManual() {
     if (!userId) return;
+    const hoursIssue = workHoursIssue(manual.start, manual.end);
+    if (hoursIssue) {
+      showAlert('Check the work hours', hoursIssue);
+      return;
+    }
     if (!manual.name.trim()) {
       showAlert('Add a name', 'Type the name of the person you are adding to your team.');
       return;

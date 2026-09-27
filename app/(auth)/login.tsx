@@ -111,6 +111,12 @@ export default function Login() {
     if (isLocked) return;
 
     const trimmedEmail = email.trim().toLowerCase();
+    // Checked locally so an empty tap never reaches the server - or counts
+    // toward the wrong-password lockout.
+    if (!trimmedEmail || !password) {
+      showAlert('Enter your details', 'Type your email and password to sign in.');
+      return;
+    }
     setIsSubmitting(true);
     const { error } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
     setIsSubmitting(false);

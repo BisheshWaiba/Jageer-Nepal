@@ -51,6 +51,14 @@ export default function Register() {
 
   async function handleRegister() {
     const trimmedEmail = email.trim().toLowerCase();
+    if (!fullName.trim()) {
+      showAlert('Add your name', 'Enter your full name so others know who they are dealing with.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      showAlert('Check your email', 'Enter a valid email address, e.g. you@example.com.');
+      return;
+    }
     const issue = passwordIssue(password);
     if (issue) {
       showAlert('Choose a stronger password', issue);
@@ -84,7 +92,7 @@ export default function Register() {
           <AppLogo size={100} />
         </View>
         <Text className="mb-1.5 text-center text-2xl font-extrabold text-gray-900">Choose how you'll use Jageer</Text>
-        <Text className="mb-5 text-center text-sm text-gray-500">You can add more roles later from Settings.</Text>
+        <Text className="mb-5 text-center text-sm text-gray-500">Pick the one that fits how you'll use the app.</Text>
 
         <View className="mb-6 gap-2.5">
           {ROLES.map((r) => {

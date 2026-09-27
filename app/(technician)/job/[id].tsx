@@ -15,6 +15,7 @@ import { ChalanPhotos } from '../../../lib/components/ChalanPhotos';
 import { HoldRequestModal } from '../../../lib/components/HoldRequestModal';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
 import { formatDuration, formatTimestamp } from '../../../lib/utils/duration';
+import { decimalInput, digitsInput } from '../../../lib/utils/number';
 import type { RequestStatus } from '../../../types/database.types';
 
 // Ticks once a minute - jobs run from minutes to days, so second-level
@@ -89,8 +90,16 @@ interface PartRow {
   cost: string;
 }
 
-export default function JobCard() {
+export default function JobCardScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  // Hidden tab screens stay mounted between visits, so opening another
+  // record reused this one's component state (typed quote/remark/price, a
+  // "thanks for rating" flag, an open edit form...). Keying on the id gives
+  // every record its own fresh state.
+  return <JobCard key={id} id={id} />;
+}
+
+function JobCard({ id }: { id: string }) {
   const userId = useAuthStore((state) => state.session?.user.id);
   const { data: request, isLoading, isError } = useSupabaseRow('service_requests', id);
   const { data: jobCards } = useSupabaseQuery('job_cards', {
@@ -106,8 +115,10 @@ export default function JobCard() {
   const insertJobCard = useSupabaseInsert('job_cards');
   const updateJobCard = useSupabaseUpdate('job_cards');
 
-  const [parts, setParts] = useState<PartRow[]>([{ name: '', quantity: '1', cost: '0' }]);
-  const [laborCost, setLaborCost] = useState('0');
+  // Empty (with a "0" placeholder) rather than a pre-filled "0", which
+  // turned typing 500 into "0500".
+  const [parts, setParts] = useState<PartRow[]>([{ name: '', quantity: '1', cost: '' }]);
+  const [laborCost, setLaborCost] = useState('');
   const [answering, setAnswering] = useState<'accept' | 'reject' | 'reopen' | null>(null);
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [holdSubmitting, setHoldSubmitting] = useState(false);
@@ -124,9 +135,9 @@ export default function JobCard() {
     setParts(
       savedParts.length > 0
         ? savedParts.map((p) => ({ name: p.name, quantity: String(p.quantity), cost: String(p.cost) }))
-        : [{ name: '', quantity: '1', cost: '0' }]
+        : [{ name: '', quantity: '1', cost: '' }]
     );
-    setLaborCost(String(Number(jobCard.labor_cost) || 0));
+    setLaborCost(Number(jobCard.labor_cost) > 0 ? String(jobCard.labor_cost) : '');
   }, [jobCard?.id, jobCard?.updated_at, request?.status]);
 
   if (!isLoading && (isError || !request)) {
@@ -157,7 +168,7 @@ export default function JobCard() {
   }
 
   function addPart() {
-    setParts((prev) => [...prev, { name: '', quantity: '1', cost: '0' }]);
+    setParts((prev) => [...prev, { name: '', quantity: '1', cost: '' }]);
   }
 
   function removePart(index: number) {
@@ -457,14 +468,14 @@ export default function JobCard() {
               />
               <TextInput
                 value={part.quantity}
-                onChangeText={(v) => updatePart(index, 'quantity', v)}
+                onChangeText={(v) => updatePart(index, 'quantity', digitsInput(v))}
                 placeholder="Qty"
                 keyboardType="numeric"
                 className="w-16 rounded-lg border border-gray-300 px-3 py-2 text-sm"
               />
               <TextInput
                 value={part.cost}
-                onChangeText={(v) => updatePart(index, 'cost', v)}
+                onChangeText={(v) => updatePart(index, 'cost', decimalInput(v))}
                 placeholder="Cost"
                 keyboardType="numeric"
                 className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm"
@@ -481,7 +492,8 @@ export default function JobCard() {
           <Text className="mb-1 text-sm font-semibold text-gray-900">Labor cost (NPR)</Text>
           <TextInput
             value={laborCost}
-            onChangeText={setLaborCost}
+            onChangeText={(v) => setLaborCost(decimalInput(v))}
+            placeholder="0"
             keyboardType="numeric"
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
           />
