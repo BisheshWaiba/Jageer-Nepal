@@ -5,12 +5,15 @@
 // Same shape as scan-bill: the Gemini key stays server-side.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
+import { checkDailyAiLimit, tooLarge, nepalToday, MAX_BASE64_CHARS } from '../_shared/limits.ts';
 
 // See chat-assistant for why: the free tier's "lite" model has a much
 // larger daily request cap than the full "flash" model does.
 const GEMINI_MODEL = 'gemini-flash-lite-latest';
 
-const PROMPT = `You are listening to a short voice command from a small business owner in Nepal, speaking Nepali, English, or a mix of both, about their bookkeeping app. Figure out which one of these five actions they mean, and pull out whatever details they mentioned:
+// Built per request so "today" is always current (a module-level constant
+// kept the date the instance started with).
+const buildPrompt = () => `You are listening to a short voice command from a small business owner in Nepal, speaking Nepali, English, or a mix of both, about their bookkeeping app. Figure out which one of these five actions they mean, and pull out whatever details they mentioned:
 
 - add_sale: recording a sale/bill to a customer
 - add_purchase: recording a purchase/bill from a vendor or supplier
@@ -24,7 +27,7 @@ Return JSON with:
 - action: one of "add_sale", "add_purchase", "add_expense", "payment_in", "payment_out", or null if not understood
 - party_name: the customer/vendor name mentioned, or null
 - amount: the amount in NPR as a plain number, or null
-- date: a date if one was explicitly mentioned (e.g. "yesterday", "last Tuesday"), converted to YYYY-MM-DD (AD) relative to today being ${new Date().toISOString().slice(0, 10)} - or null if no date was mentioned (meaning "today")
+- date: a date if one was explicitly mentioned (e.g. "yesterday", "last Tuesday"), converted to YYYY-MM-DD (AD) relative to today being ${nepalToday()} - or null if no date was mentioned (meaning "today")
 - note: a short note describing what it's for, or null
 - items: an array of {description, qty, rate} ONLY if the command clearly itemizes a sale/purchase (rare in speech) - otherwise an empty array
 
@@ -76,7 +79,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    const overLimit = await checkDailyAiLimit(callerClient);
+    if (overLimit) return overLimit;
+
     const { audio, mimeType } = await req.json();
+    if (typeof audio === 'string' && audio.length > MAX_BASE64_CHARS) {
+      return tooLarge('That recording is too large - try a smaller one.');
+    }
     if (!audio || typeof audio !== 'string') {
       return new Response(JSON.stringify({ error: 'audio is required' }), {
         status: 400,
@@ -99,7 +108,7 @@ Deno.serve(async (req) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [
-            { parts: [{ text: PROMPT }, { inline_data: { mime_type: mimeType || 'audio/aac', data: audio } }] },
+            { parts: [{ text: buildPrompt() }, { inline_data: { mime_type: mimeType || 'audio/aac', data: audio } }] },
           ],
           generationConfig: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA },
         }),

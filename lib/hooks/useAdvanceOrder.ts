@@ -1,38 +1,53 @@
 // lib/hooks/useAdvanceOrder.ts
-import { useSupabaseUpdate } from './useSupabase';
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '../supabase';
 import { showAlert, getErrorMessage } from '../utils/alert';
-import { NEXT_STATUS } from '../utils/orderStatus';
-import type { Order, OrderItem, Product } from '../../types/database.types';
+import type { Order } from '../../types/database.types';
 
 /**
- * Shared seller-side "advance order status" action. Confirming an order is
- * the seller's commitment, so stock is decremented on the pending->confirmed
- * transition only - the seller owns the product rows and is the one allowed
- * to write to them.
+ * Seller-side "advance order status" and cancel actions. Both run as one
+ * server-side transaction (migration 0079): confirming takes the stock
+ * from the seller's listings in the same step - refusing to oversell - and
+ * cancelling a confirmed order gives it back. The app no longer writes
+ * stock or order status itself, so a half-finished update can't leave the
+ * two out of step.
  */
 export function useAdvanceOrder() {
-  const updateOrder = useSupabaseUpdate('orders');
-  const updateProduct = useSupabaseUpdate('products');
+  const queryClient = useQueryClient();
+  const [isBusy, setIsBusy] = useState(false);
 
-  async function advance(order: Order, orderItems: OrderItem[] | undefined, productMap: Map<string, Product>) {
-    const nextStatus = NEXT_STATUS[order.status];
-    if (!nextStatus) return;
-    try {
-      if (order.status === 'pending' && orderItems) {
-        for (const item of orderItems) {
-          const product = productMap.get(item.product_id);
-          if (!product) continue;
-          await updateProduct.mutateAsync({
-            id: product.id,
-            values: { stock_level: Math.max(0, product.stock_level - item.quantity) },
-          });
-        }
-      }
-      await updateOrder.mutateAsync({ id: order.id, values: { status: nextStatus } });
-    } catch (err) {
-      showAlert('Could not update order', getErrorMessage(err));
+  function refresh() {
+    for (const key of ['orders', 'order_items', 'products', 'business_transactions']) {
+      queryClient.invalidateQueries({ queryKey: [key] });
     }
   }
 
-  return { advance, isBusy: updateOrder.isPending || updateProduct.isPending };
+  async function advance(order: Order) {
+    setIsBusy(true);
+    try {
+      const { error } = await (supabase as any).rpc('advance_order', { p_order_id: order.id });
+      if (error) throw error;
+      refresh();
+    } catch (err) {
+      showAlert('Could not update order', getErrorMessage(err));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function cancel(order: Order) {
+    setIsBusy(true);
+    try {
+      const { error } = await (supabase as any).rpc('cancel_order', { p_order_id: order.id });
+      if (error) throw error;
+      refresh();
+    } catch (err) {
+      showAlert('Could not cancel order', getErrorMessage(err));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return { advance, cancel, isBusy };
 }

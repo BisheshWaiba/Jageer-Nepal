@@ -5,6 +5,7 @@
 // as a fallback) finishes a few seconds later.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
+import { checkDailyAiLimit, tooLarge, MAX_BASE64_CHARS } from '../_shared/limits.ts';
 
 // See chat-assistant for why: the free tier's "lite" model has a much
 // larger daily request cap than the full "flash" model does.
@@ -33,7 +34,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    const overLimit = await checkDailyAiLimit(callerClient);
+    if (overLimit) return overLimit;
+
     const { audio, mimeType } = await req.json();
+    if (typeof audio === 'string' && audio.length > MAX_BASE64_CHARS) {
+      return tooLarge('That recording is too large - try a smaller one.');
+    }
     if (!audio || typeof audio !== 'string') {
       return new Response(JSON.stringify({ error: 'audio is required' }), {
         status: 400,

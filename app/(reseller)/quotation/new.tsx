@@ -349,14 +349,37 @@ export default function NewQuotation() {
       showAlert('Add an item', 'Add at least one line item to quote.');
       return;
     }
+    let logoDataUri: string | null = null;
+    if (profile?.business_logo_path) {
+      logoDataUri = supabase.storage.from('business-assets').getPublicUrl(profile.business_logo_path).data.publicUrl;
+    }
+    const html = buildQuotationHtml(logoDataUri);
+
+    // On web, expo-print's printToFileAsync just calls window.print() on the
+    // app page itself and returns nothing, so generating always failed there.
+    // Open the quotation in its own window instead - the browser's print
+    // dialog has "Save as PDF". Opened before any await so pop-up blockers
+    // treat it as part of the button press.
+    const webPrintWindow = Platform.OS === 'web' ? window.open('', '_blank') : null;
+    if (Platform.OS === 'web' && !webPrintWindow) {
+      showAlert('Allow pop-ups', 'Your browser blocked the quotation window - allow pop-ups for this site and try again.');
+      return;
+    }
+
     setGenerating(true);
     try {
-      let logoDataUri: string | null = null;
-      if (profile?.business_logo_path) {
-        logoDataUri = supabase.storage.from('business-assets').getPublicUrl(profile.business_logo_path).data.publicUrl;
+      let uri: string | null = null;
+      if (webPrintWindow) {
+        // The page prints itself once its images (logo, item photos) have
+        // loaded - set from inside the document, since a handler attached
+        // from here can miss a load that fires during document.close().
+        const printOnLoad = '<script>window.onload = function () { window.focus(); window.print(); };</script>';
+        webPrintWindow.document.open();
+        webPrintWindow.document.write(html.replace('</body></html>', `${printOnLoad}</body></html>`));
+        webPrintWindow.document.close();
+      } else {
+        uri = (await Print.printToFileAsync({ html })).uri;
       }
-      const html = buildQuotationHtml(logoDataUri);
-      const { uri } = await Print.printToFileAsync({ html });
 
       const quotationItems: QuotationItem[] = items.filter(isFilledRow).map((row) => ({
         photo_url: row.photoUrl,
@@ -370,7 +393,7 @@ export default function NewQuotation() {
       }));
 
       let pdfPath: string | null = null;
-      try {
+      if (uri) try {
         const arraybuffer = await fetch(uri).then((res) => res.arrayBuffer());
         pdfPath = `${userId}/${quoteNo.replace(/[^A-Za-z0-9]/g, '-')}-${Date.now()}.pdf`;
         const { error } = await supabase.storage
@@ -399,7 +422,7 @@ export default function NewQuotation() {
         pdf_path: pdfPath,
       } as any);
 
-      if (Platform.OS !== 'web' && (await Sharing.isAvailableAsync())) {
+      if (uri && (await Sharing.isAvailableAsync())) {
         await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });
       } else {
         showAlert('Quotation generated', `Saved as quote ${quoteNo}.`);

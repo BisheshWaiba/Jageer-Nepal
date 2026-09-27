@@ -3,7 +3,9 @@ import { useState } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../../lib/hooks/useAuth';
-import { useSupabaseRow, useSupabaseInsert } from '../../../lib/hooks/useSupabase';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '../../../lib/supabase';
+import { useSupabaseRow } from '../../../lib/hooks/useSupabase';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
 
 const PLATFORM_FEE_RATE = 0.075;
@@ -13,8 +15,7 @@ export default function WholesaleProductDetail() {
   const userId = useAuthStore((state) => state.session?.user.id);
   const { data: product, isLoading } = useSupabaseRow('products', id);
 
-  const insertOrder = useSupabaseInsert('orders');
-  const insertOrderItem = useSupabaseInsert('order_items');
+  const queryClient = useQueryClient();
 
   const [quantity, setQuantity] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -28,7 +29,8 @@ export default function WholesaleProductDetail() {
   }
 
   const qty = quantity ?? product.min_order_qty;
-  const unitPrice = Number(product.wholesale_price ?? product.price);
+  // The price place_order actually charges (it prices from `price`).
+  const unitPrice = Number(product.price);
   const total = unitPrice * qty;
   const platformFee = Math.round(total * PLATFORM_FEE_RATE);
 
@@ -45,21 +47,15 @@ export default function WholesaleProductDetail() {
 
     setSubmitting(true);
     try {
-      const order = await insertOrder.mutateAsync({
-        buyer_id: userId,
-        seller_id: product!.seller_id,
-        total_amount: total,
-        platform_fee: platformFee,
-        seller_payout: total - platformFee,
-        payment_method: 'wholesale_order',
-        status: 'pending',
+      // Orders can only be placed through place_order now (migration 0079),
+      // which prices the line itself and checks stock and the minimum.
+      const { error } = await (supabase as any).rpc('place_order', {
+        p_seller_id: product!.seller_id,
+        p_items: [{ product_id: product!.id, quantity: qty }],
+        p_shipping: null,
       });
-      await insertOrderItem.mutateAsync({
-        order_id: order.id,
-        product_id: product!.id,
-        quantity: qty,
-        unit_price: unitPrice,
-      });
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
       showAlert('Bulk order requested', 'The seller will confirm your order shortly.');
       router.replace('/(wholesaler)/orders');
     } catch (err) {

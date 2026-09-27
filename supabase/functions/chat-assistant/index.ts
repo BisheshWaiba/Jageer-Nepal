@@ -6,6 +6,7 @@
 // saves it themselves. Same key-handling shape as scan-bill/voice-command.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
+import { checkDailyAiLimit, tooLarge, nepalToday, MAX_HISTORY_TURNS, MAX_TEXT_CHARS, MAX_BASE64_CHARS } from '../_shared/limits.ts';
 
 // Google tracks the free-tier daily request cap separately per model - the
 // full "flash" tier gets a very small daily allowance, while the "lite"
@@ -14,7 +15,9 @@ import { corsHeaders } from '../_shared/cors.ts';
 // gemini-2.0-flash did.
 const GEMINI_MODEL = 'gemini-flash-lite-latest';
 
-const SYSTEM_INSTRUCTION = `You are a friendly assistant inside "Jageer", a Nepali small-business bookkeeping app. You help the business owner log a Finance entry through a short natural conversation, in whatever language they use - Nepali, English, or a mix.
+// Built per request so "today" is always current (a module-level constant
+// kept the date the instance started with).
+const systemInstruction = () => `You are a friendly assistant inside "Jageer", a Nepali small-business bookkeeping app. You help the business owner log a Finance entry through a short natural conversation, in whatever language they use - Nepali, English, or a mix.
 
 There are exactly five kinds of entries you can help with:
 - add_sale: a sale/bill to a customer
@@ -29,7 +32,7 @@ Each turn, do four things:
 3. Re-extract your current best understanding of action/party_name/amount/date/note/items from the WHOLE conversation so far (not just the latest message) - it should only ever improve turn to turn, never forget something already given.
 4. Set ready=true once you have an action and an amount, and (for add_sale/add_purchase/payment_in/payment_out) a party_name - or the user has clearly said there isn't one. Otherwise ready=false.
 
-If today's date matters, today is ${new Date().toISOString().slice(0, 10)} - convert relative dates ("yesterday", "last Tuesday") to YYYY-MM-DD.
+If today's date matters, today is ${nepalToday()} - convert relative dates ("yesterday", "last Tuesday") to YYYY-MM-DD.
 
 Never fabricate a value that wasn't actually said - use null instead. If the user is just chatting or asks something unrelated to these five actions, reply naturally and helpfully, but keep action null and ready false.`;
 
@@ -85,13 +88,27 @@ Deno.serve(async (req) => {
       });
     }
 
+    const overLimit = await checkDailyAiLimit(callerClient);
+    if (overLimit) return overLimit;
+
     const { history, input } = await req.json();
-    const turns: HistoryTurn[] = Array.isArray(history) ? history : [];
+    const turns: HistoryTurn[] = (Array.isArray(history) ? history : [])
+      .slice(-MAX_HISTORY_TURNS)
+      .map((t: HistoryTurn): HistoryTurn => ({ role: t.role === 'model' ? 'model' : 'user', text: String(t.text ?? '').slice(0, MAX_TEXT_CHARS) }));
     if (!input || (input.type !== 'text' && input.type !== 'audio')) {
       return new Response(JSON.stringify({ error: 'input (text or audio) is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // Only the recent part of the conversation is needed, and each piece is
+    // bounded - unbounded history/text/audio was all billed to one key.
+    if (input.type === 'text' && String(input.text ?? '').length > MAX_TEXT_CHARS) {
+      return tooLarge('That message is too long - keep it under 2000 characters.');
+    }
+    if (input.type === 'audio' && String(input.audio ?? '').length > MAX_BASE64_CHARS) {
+      return tooLarge('That recording is too long - keep it short.');
     }
 
     const geminiKey = Deno.env.get('GEMINI_API_KEY');
@@ -119,7 +136,7 @@ Deno.serve(async (req) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+          systemInstruction: { parts: [{ text: systemInstruction() }] },
           contents,
           generationConfig: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA },
         }),

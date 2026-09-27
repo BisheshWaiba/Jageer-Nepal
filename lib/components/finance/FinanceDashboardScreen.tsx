@@ -7,13 +7,24 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle } from 'react-native-svg';
 import { useAuthStore } from '../../hooks/useAuth';
 import { useSupabaseQuery } from '../../hooks/useSupabase';
-import { useAccountBalances } from '../../hooks/useAccountBalances';
+import { useAccountBalances, isSettledOnTheSpot } from '../../hooks/useAccountBalances';
 import { periodBuckets, type Granularity } from './TrendChartCard';
 import { toBsDayChartLabel } from '../../utils/nepaliDate';
 import { WEB_SIDEBAR_MIN_WIDTH } from '../web/WebSidebarShell';
 
 const BLUE = '#2563EB';
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Epoch ms for a bill/entry date. A bare 'YYYY-MM-DD' is read as local
+ * midnight (new Date() would read it as UTC midnight); a full timestamp
+ * (the created_at fallback) is used as-is. */
+function dayTime(date: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [y, m, d] = date.split('-').map(Number);
+    return new Date(y, m - 1, d).getTime();
+  }
+  return new Date(date).getTime();
+}
 
 // Cashflow's own "week" means the last 7 individual days, not an 8-week
 // rolling aggregate like the shared periodBuckets('week', ...) other charts
@@ -291,20 +302,21 @@ export function FinanceDashboardScreen({ basePath }: { basePath: string }) {
   // and it's that ledger being settled that actually shows up as cash here.
   const cashflow = useMemo(() => {
     return cashflowBuckets.map((b) => {
-      const bucketTx = (transactions ?? []).filter((t) => {
-        const tm = new Date(t.created_at).getTime();
-        return tm >= b.start && tm < b.end;
-      });
-      const bucketEntries = (allEntries ?? []).filter((e) => {
-        const t = new Date(e.created_at).getTime();
+      // Bucketed by the date the entry is FOR (bill/entry date), the same
+      // as the Totals report and Day Book - created_at put back-dated
+      // entries in a different period here than on those screens.
+      const inBucket = (date: string) => {
+        const t = dayTime(date);
         return t >= b.start && t < b.end;
-      });
-      const bucketVendorEntries = (vendorEntries ?? []).filter((e) => {
-        const t = new Date(e.created_at).getTime();
-        return t >= b.start && t < b.end;
-      });
-      const inAmt = bucketEntries.filter((e) => e.entry_type === 'credit').reduce((sum, e) => sum + e.amount, 0);
+      };
+      const bucketTx = (transactions ?? []).filter((t) => inBucket(t.bill_date ?? t.created_at));
+      const bucketEntries = (allEntries ?? []).filter((e) => inBucket(e.entry_date ?? e.created_at));
+      const bucketVendorEntries = (vendorEntries ?? []).filter((e) => inBucket(e.entry_date ?? e.created_at));
+      const inAmt =
+        bucketEntries.filter((e) => e.entry_type === 'credit').reduce((sum, e) => sum + e.amount, 0) +
+        bucketTx.filter((t) => isSettledOnTheSpot(t) && t.type === 'sale').reduce((sum, t) => sum + t.amount, 0);
       const outAmt =
+        bucketTx.filter((t) => isSettledOnTheSpot(t) && t.type === 'purchase').reduce((sum, t) => sum + t.amount, 0) +
         bucketTx.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0) +
         bucketEntries.filter((e) => e.entry_type === 'debit' && e.source === 'manual').reduce((sum, e) => sum + e.amount, 0) +
         bucketVendorEntries.filter((e) => e.entry_type === 'credit').reduce((sum, e) => sum + e.amount, 0);
@@ -331,17 +343,22 @@ export function FinanceDashboardScreen({ basePath }: { basePath: string }) {
     const year = new Date().getFullYear();
     let received = 0;
     let paid = 0;
+    const inYear = (date: string) => new Date(dayTime(date)).getFullYear() === year;
     for (const t of transactions ?? []) {
-      if (new Date(t.created_at).getFullYear() !== year) continue;
+      if (!inYear(t.bill_date ?? t.created_at)) continue;
       if (t.type === 'expense') paid += t.amount;
+      if (isSettledOnTheSpot(t)) {
+        if (t.type === 'sale') received += t.amount;
+        else paid += t.amount;
+      }
     }
     for (const e of allEntries ?? []) {
-      if (new Date(e.created_at).getFullYear() !== year) continue;
+      if (!inYear(e.entry_date ?? e.created_at)) continue;
       if (e.entry_type === 'credit') received += e.amount;
       if (e.entry_type === 'debit' && e.source === 'manual') paid += e.amount;
     }
     for (const e of vendorEntries ?? []) {
-      if (new Date(e.created_at).getFullYear() !== year) continue;
+      if (!inYear(e.entry_date ?? e.created_at)) continue;
       if (e.entry_type === 'credit') paid += e.amount;
     }
     return { yearReceived: received, yearPaid: paid };

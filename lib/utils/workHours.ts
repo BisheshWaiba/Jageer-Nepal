@@ -1,10 +1,11 @@
 // lib/utils/workHours.ts
 
 /** Why a work-hours range ('HH:MM' 24-hour) can't be saved, or null if it's
- * fine. Shifts are same-day (e.g. 09:00-17:00), so the end must come after
- * the start - equal or reversed times used to be accepted silently. */
+ * fine. An end earlier than the start is a legitimate overnight shift (e.g.
+ * 22:00-06:00, which useTechnicianRanking's isWithinWorkHours wraps around
+ * midnight), so only an empty or zero-length range is rejected. */
 export function workHoursIssue(start: string, end: string): string | null {
   if (!start || !end) return 'Pick both a start and an end time.';
-  if (end <= start) return 'The end time must be later than the start time.';
+  if (end === start) return 'The start and end times are the same - pick a real shift.';
   return null;
 }

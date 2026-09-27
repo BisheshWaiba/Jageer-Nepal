@@ -63,31 +63,68 @@ export async function syncPhoneContactsToCustomers(ownerId: string): Promise<num
   // below - a partial-column `.select()` string can't be resolved against
   // the generic `Database['public']['Tables']['customers']['Row']` type.
   const { data: existing, error: fetchError } = await (supabase.from('customers') as any)
-    .select('id, phone, phone_contact_id')
+    .select('id, name, phone, phone_contact_id')
     .eq('owner_id', ownerId);
   if (fetchError) throw fetchError;
 
-  const existingRows = (existing ?? []) as { id: string; phone: string | null; phone_contact_id: string | null }[];
+  type ExistingRow = { id: string; name: string; phone: string | null; phone_contact_id: string | null };
+  const existingRows = (existing ?? []) as ExistingRow[];
+  const byId = new Map(existingRows.map((c) => [c.id, c]));
   const byPhoneContactId = new Map(existingRows.filter((c) => c.phone_contact_id).map((c) => [c.phone_contact_id as string, c.id]));
   const byPhone = new Map(existingRows.filter((c) => c.phone).map((c) => [c.phone as string, c.id]));
 
-  const rows = candidates.map((c) => {
+  // Two phone contacts with the same number (very common - a person saved
+  // twice) used to both go into one upsert: they'd collide on the
+  // (owner_id, phone) unique index, or hit the same existing row twice,
+  // failing the whole batch - and since background syncs swallow errors,
+  // every sync after that silently did nothing. Keep one row per number and
+  // one per target customer.
+  const seenPhones = new Set<string>();
+  const seenTargets = new Set<string>();
+  const rows: Record<string, unknown>[] = [];
+  for (const c of candidates) {
+    if (seenPhones.has(c.phone)) continue;
+    seenPhones.add(c.phone);
     const existingId = byPhoneContactId.get(c.phone_contact_id) ?? byPhone.get(c.phone);
-    return {
-      ...(existingId ? { id: existingId } : {}),
-      owner_id: ownerId,
-      phone_contact_id: c.phone_contact_id,
-      name: c.name,
-      phone: c.phone,
-      updated_at: new Date().toISOString(),
-    };
-  });
+    if (existingId) {
+      if (seenTargets.has(existingId)) continue;
+      seenTargets.add(existingId);
+      const current = byId.get(existingId)!;
+      // A customer added by hand keeps the name the business gave them
+      // ("Ram Hardware", not whatever the phone calls them) - sync only
+      // links it to the phone contact. Rows sync created keep following the
+      // phone contact's name.
+      const name = current.phone_contact_id ? c.name : current.name;
+      const unchanged =
+        current.name === name && current.phone === c.phone && current.phone_contact_id === c.phone_contact_id;
+      if (unchanged) continue;
+      rows.push({ id: existingId, owner_id: ownerId, phone_contact_id: c.phone_contact_id, name, phone: c.phone, updated_at: new Date().toISOString() });
+    } else {
+      rows.push({ owner_id: ownerId, phone_contact_id: c.phone_contact_id, name: c.name, phone: c.phone, updated_at: new Date().toISOString() });
+    }
+  }
+
+  if (rows.length === 0) {
+    await AsyncStorage.setItem(lastSyncedKey(ownerId), new Date().toISOString());
+    return 0;
+  }
 
   // Cast to `any`: postgrest-js can't infer a precise Insert[] shape here
   // since `Database['public']['Tables']['customers']['Insert']` is a bare
   // `Partial<Customer>` (see useSupabase.ts for the same pattern).
-  const { error } = await (supabase.from('customers') as any).upsert(rows, { onConflict: 'id' });
-  if (error) throw error;
+  // Updates and new rows go in separate calls: in one bulk upsert, a row
+  // without an `id` is sent with id = null (supabase-js fills missing
+  // columns with null), instead of letting the database generate one.
+  const updates = rows.filter((r) => r.id);
+  const inserts = rows.filter((r) => !r.id);
+  if (updates.length > 0) {
+    const { error } = await (supabase.from('customers') as any).upsert(updates, { onConflict: 'id' });
+    if (error) throw error;
+  }
+  if (inserts.length > 0) {
+    const { error } = await (supabase.from('customers') as any).insert(inserts);
+    if (error) throw error;
+  }
 
   await AsyncStorage.setItem(lastSyncedKey(ownerId), new Date().toISOString());
   return rows.length;

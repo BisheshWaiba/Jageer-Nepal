@@ -141,6 +141,8 @@ export interface ServiceRequest {
   payment_status: PaymentStatus;
   payment_method: PaymentMethod | null;
   fonepay_prn: string | null;
+  /** Every Fonepay PRN ever issued for this job (migration 0079). */
+  fonepay_prns: string[];
   paid_at: string | null;
   customer_name: string | null;
   customer_phone: string | null;

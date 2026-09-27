@@ -5,6 +5,7 @@
 // and submits it themselves.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
+import { checkDailyAiLimit, tooLarge, nepalToday, MAX_HISTORY_TURNS, MAX_TEXT_CHARS, MAX_BASE64_CHARS } from '../_shared/limits.ts';
 
 // See chat-assistant for why: the free tier's "lite" model has a much
 // larger daily request cap than the full "flash" model does.
@@ -24,7 +25,7 @@ Your job is to help them book a service request. You need to figure out:
 - notes: a short description of the actual problem, in their own words, for the technician to read
 
 Optionally, if they happen to mention it naturally (don't demand it, the form has its own fields for these):
-- date / time: when they'd like the technician to come, converted to YYYY-MM-DD and HH:MM (24-hour) - today is ${new Date().toISOString().slice(0, 10)}
+- date / time: when they'd like the technician to come, converted to YYYY-MM-DD and HH:MM (24-hour) - today is ${nepalToday()}
 - address: where the technician should come, if mentioned
 
 Each turn, do three things:
@@ -71,14 +72,28 @@ Deno.serve(async (req) => {
       });
     }
 
+    const overLimit = await checkDailyAiLimit(callerClient);
+    if (overLimit) return overLimit;
+
     const { history, input, categories } = await req.json();
-    const turns: HistoryTurn[] = Array.isArray(history) ? history : [];
+    const turns: HistoryTurn[] = (Array.isArray(history) ? history : [])
+      .slice(-MAX_HISTORY_TURNS)
+      .map((t: HistoryTurn): HistoryTurn => ({ role: t.role === 'model' ? 'model' : 'user', text: String(t.text ?? '').slice(0, MAX_TEXT_CHARS) }));
     const categoryList: string[] = Array.isArray(categories) && categories.length > 0 ? categories : ['General'];
     if (!input || (input.type !== 'text' && input.type !== 'audio')) {
       return new Response(JSON.stringify({ error: 'input (text or audio) is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // Only the recent part of the conversation is needed, and each piece is
+    // bounded - unbounded history/text/audio was all billed to one key.
+    if (input.type === 'text' && String(input.text ?? '').length > MAX_TEXT_CHARS) {
+      return tooLarge('That message is too long - keep it under 2000 characters.');
+    }
+    if (input.type === 'audio' && String(input.audio ?? '').length > MAX_BASE64_CHARS) {
+      return tooLarge('That recording is too long - keep it short.');
     }
 
     const geminiKey = Deno.env.get('GEMINI_API_KEY');

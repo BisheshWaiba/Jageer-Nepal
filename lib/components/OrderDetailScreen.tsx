@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../hooks/useAuth';
 import { useSupabaseRow, useSupabaseQuery } from '../hooks/useSupabase';
 import { useAdvanceOrder } from '../hooks/useAdvanceOrder';
+import { showAlert } from '../utils/alert';
 import { ChatThread } from './ChatThread';
 import {
   DetailShell,
@@ -103,7 +104,7 @@ export function OrderDetailScreen() {
   const counterpartyRole = order?.buyer_id === userId ? 'Sold by' : 'Ordered by';
   const { data: counterparty } = useSupabaseRow('profiles', counterpartyId);
 
-  const { advance, isBusy } = useAdvanceOrder();
+  const { advance, cancel, isBusy } = useAdvanceOrder();
   const [chatFocus, setChatFocus] = useState(0);
 
   const productMap = useMemo(() => new Map((products ?? []).map((p) => [p.id, p])), [products]);
@@ -120,6 +121,39 @@ export function OrderDetailScreen() {
   const nextLabel = STATUS_ACTION_LABEL[order.status];
   const isOwner = order.seller_id === userId;
   const canAdvance = isOwner && !!nextStatus && !!nextLabel;
+  // The seller can call off an order until it's delivered; the buyer only
+  // while it's still waiting for the seller to confirm.
+  const isBuyer = order.buyer_id === userId;
+  const canCancel =
+    (isOwner && (order.status === 'pending' || order.status === 'confirmed' || order.status === 'shipped')) ||
+    (isBuyer && order.status === 'pending');
+
+  function confirmCancel() {
+    if (!order) return;
+    showAlert(
+      'Cancel this order?',
+      isOwner
+        ? order.status === 'pending'
+          ? 'The customer is told you declined it.'
+          : 'Any stock set aside for it goes back to your listings.'
+        : 'The seller is told you no longer want it.',
+      [
+        { text: 'Keep order', style: 'cancel' },
+        { text: 'Cancel order', style: 'destructive', onPress: () => cancel(order) },
+      ]
+    );
+  }
+
+  const cancelButton = canCancel ? (
+    <DetailButton
+      label="Cancel order"
+      icon="close-circle-outline"
+      kind="ghost"
+      height={42}
+      disabled={isBusy}
+      onPress={confirmCancel}
+    />
+  ) : null;
 
   // Same privacy rule as the order card in the list: photo, name, and
   // delivery address are always visible, but the contact number stays
@@ -136,7 +170,7 @@ export function OrderDetailScreen() {
       icon="checkmark-circle"
       kind="green"
       disabled={isBusy}
-      onPress={() => advance(order, orderItems, productMap)}
+      onPress={() => advance(order)}
     />
   ) : null;
 
@@ -155,7 +189,15 @@ export function OrderDetailScreen() {
           }
         >
           {advanceButton}
+          {cancelButton}
         </NextStepCard>
+      )}
+      {/* On a phone the advance button lives in the bottom bar, and a buyer
+          has no next step - either way cancelling gets its own card. */}
+      {canCancel && (!wide || !canAdvance) && (
+        <DetailCard wide={wide} icon="close-circle-outline" title="Change of plan?">
+          {cancelButton}
+        </DetailCard>
       )}
 
       <DetailCard wide={wide} icon="time-outline" title="Progress">

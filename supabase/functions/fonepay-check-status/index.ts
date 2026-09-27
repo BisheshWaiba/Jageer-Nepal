@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
     });
     const { data: request, error: fetchError } = await callerClient
       .from('service_requests')
-      .select('id, payment_status, fonepay_prn')
+      .select('id, payment_status, fonepay_prn, fonepay_prns')
       .eq('id', service_request_id)
       .single();
 
@@ -43,14 +43,29 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    if (!request.fonepay_prn) {
+    // Every QR ever issued for this job, newest first - the customer may
+    // have paid one shown earlier than the latest (migration 0079).
+    const prns: string[] = [
+      ...new Set([request.fonepay_prn, ...[...(request.fonepay_prns ?? [])].reverse()].filter(Boolean)),
+    ];
+    if (prns.length === 0) {
       return new Response(JSON.stringify({ error: 'No QR has been generated for this job yet' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const result = await checkQrStatus(request.fonepay_prn);
+    // Paid if any of them succeeded; otherwise report the newest QR's state
+    // (an old, abandoned QR reporting "failed" shouldn't mask a pending one).
+    let result: Awaited<ReturnType<typeof checkQrStatus>> = { paymentStatus: 'pending' };
+    for (let i = 0; i < prns.length; i++) {
+      const status = await checkQrStatus(prns[i]);
+      if (i === 0) result = status;
+      if (status.paymentStatus === 'success') {
+        result = status;
+        break;
+      }
+    }
 
     if (result.paymentStatus === 'success') {
       const adminClient = createClient(supabaseUrl, serviceRoleKey);

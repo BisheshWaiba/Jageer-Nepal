@@ -4,6 +4,7 @@
 // key stays server-side here so it never ships inside the app bundle.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
+import { checkDailyAiLimit, tooLarge, MAX_BASE64_CHARS } from '../_shared/limits.ts';
 
 // See chat-assistant for why: the free tier's "lite" model has a much
 // larger daily request cap than the full "flash" model does.
@@ -72,7 +73,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    const overLimit = await checkDailyAiLimit(callerClient);
+    if (overLimit) return overLimit;
+
     const { image, mimeType } = await req.json();
+    if (typeof image === 'string' && image.length > MAX_BASE64_CHARS) {
+      return tooLarge('That photo is too large - try a smaller one.');
+    }
     if (!image || typeof image !== 'string') {
       return new Response(JSON.stringify({ error: 'image is required' }), {
         status: 400,

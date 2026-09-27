@@ -3,6 +3,13 @@ import { useMemo } from 'react';
 import { useSupabaseQuery } from './useSupabase';
 import { useBankAccounts } from './useBankAccounts';
 
+/** A Sale or Purchase that isn't billed to a saved party, so no ledger debt
+ * is booked for it (0061) - its money moved when it was recorded. Shared by
+ * every Finance figure that counts cash in/out, so they all agree. */
+export function isSettledOnTheSpot(t: { type: string; customer_id?: string | null }): boolean {
+  return (t.type === 'sale' || t.type === 'purchase') && !t.customer_id;
+}
+
 export interface AccountActivityItem {
   id: string;
   date: string;
@@ -70,6 +77,22 @@ export function useAccountBalances(userId: string | undefined) {
     // payment) that actually moves money. Only Expense still spends cash
     // the moment it's logged.
     for (const t of transactions ?? []) {
+      // A Sale/Purchase with no party behind it has no ledger to settle
+      // later - a paid walk-in job (0037), or a delivered cash-on-delivery
+      // order (0050). The money changed hands there and then, so it counts
+      // as cash straight away; leaving it out made real takings vanish from
+      // the balance.
+      if (isSettledOnTheSpot(t)) {
+        const isSale = t.type === 'sale';
+        add(t.bank_account_id, isSale ? t.amount : -t.amount, {
+          id: t.id,
+          date: t.bill_date ?? t.created_at,
+          label: `${isSale ? 'Sale' : 'Purchase'}${t.party_name ? ` · ${t.party_name}` : ''}`,
+          sub: t.note ?? '',
+          isInflow: isSale,
+          nav: { kind: 'transactions', type: isSale ? 'sale' : 'purchase' },
+        });
+      }
       if (t.type === 'expense') {
         const partyLabel = t.party_name ?? '';
         add(t.bank_account_id, -t.amount, {

@@ -72,13 +72,22 @@ export function CheckoutScreen({ redirectTo }: { redirectTo: string }) {
           <View className="flex-1">
             <Text className="font-semibold text-gray-900">{item.product.name}</Text>
             <Text className="text-sm text-gray-500">NPR {Number(item.product.price).toLocaleString()} each</Text>
+            <Text className="text-xs text-gray-400">
+              {(item.product.min_order_qty ?? 1) > 1 ? `Min ${item.product.min_order_qty} · ` : ''}
+              {item.product.stock_level} in stock
+            </Text>
           </View>
           <View className="flex-row items-center gap-3">
-            <Pressable onPress={() => updateQuantity(item.product.id, item.quantity - 1)}>
+            <Pressable onPress={() => updateQuantity(item.product.id, item.quantity - 1)} hitSlop={8}>
               <Text className="text-lg text-gray-500">−</Text>
             </Pressable>
-            <Text className="w-6 text-center font-semibold">{item.quantity}</Text>
-            <Pressable onPress={() => updateQuantity(item.product.id, item.quantity + 1)}>
+            <Text className="min-w-[24px] text-center font-semibold">{item.quantity}</Text>
+            <Pressable
+              onPress={() => updateQuantity(item.product.id, item.quantity + 1)}
+              disabled={item.quantity >= item.product.stock_level}
+              hitSlop={8}
+              className="disabled:opacity-30"
+            >
               <Text className="text-lg text-gray-500">+</Text>
             </Pressable>
           </View>

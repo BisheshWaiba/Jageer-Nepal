@@ -6,6 +6,7 @@ import { supabase, AUTH_STORAGE_KEY } from '../supabase';
 import { SecureAuthStorage } from '../utils/secureAuthStorage';
 import { queryClient } from '../providers/QueryProvider';
 import type { Profile, UserRole } from '../../types/database.types';
+import { useCartStore } from './useCart';
 
 interface AuthState {
   session: Session | null;
@@ -51,6 +52,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     await SecureAuthStorage.removeItem(AUTH_STORAGE_KEY);
     queryClient.clear();
+    // The cart is in-memory app state, not a query - without this the next
+    // account to sign in on the device inherited (and could check out) the
+    // previous user's cart.
+    useCartStore.getState().clearCart();
     set({ session: null, profile: null });
   },
 }));

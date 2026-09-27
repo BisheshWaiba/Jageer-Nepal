@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../hooks/useAuth';
 import { useSupabaseQuery } from '../../hooks/useSupabase';
+import { isSettledOnTheSpot } from '../../hooks/useAccountBalances';
 import { toBsDayChartLabel, toBsHistoryLabel, toBsMonthChartLabel } from '../../utils/nepaliDate';
 import { BarChart } from '../BarChart';
 
@@ -13,7 +14,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 type Kind = 'received' | 'paid';
 type Granularity = 'week' | 'month';
 
-type NavTarget = { kind: 'transactions'; type: 'expense' } | { kind: 'party'; partyId: string };
+type NavTarget = { kind: 'transactions'; type: 'expense' | 'sale' | 'purchase' } | { kind: 'party'; partyId: string };
 
 interface Entry {
   id: string;
@@ -77,6 +78,19 @@ export function TotalsReportScreen({ kind, basePath }: { kind: Kind; basePath: s
   const entries = useMemo((): Entry[] => {
     const list: Entry[] = [];
     for (const t of transactions ?? []) {
+      // A Sale/Purchase with no party has no ledger to settle it later (a
+      // paid walk-in job, a delivered cash-on-delivery order) - its money
+      // moved on the spot. Same rule as useAccountBalances.
+      if (isSettledOnTheSpot(t) && (kind === 'received') === (t.type === 'sale')) {
+        list.push({
+          id: t.id,
+          date: t.bill_date ?? t.created_at,
+          amount: t.amount,
+          label: t.type === 'sale' ? 'Sale' : 'Purchase',
+          sub: t.party_name ?? t.note ?? '',
+          nav: { kind: 'transactions', type: t.type === 'sale' ? 'sale' : 'purchase' },
+        });
+      }
       if (kind === 'paid' && t.type === 'expense') {
         list.push({
           id: t.id,

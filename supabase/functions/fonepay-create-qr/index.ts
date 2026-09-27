@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
     });
     const { data: request, error: fetchError } = await callerClient
       .from('service_requests')
-      .select('id, status, payment_status, quoted_price')
+      .select('id, status, payment_status, quoted_price, fonepay_prns')
       .eq('id', service_request_id)
       .single();
 
@@ -87,9 +87,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Keep every PRN issued for this job, not just the newest: a customer
+    // may pay a QR that was shown earlier, and fonepay-check-status asks
+    // about all of them (migration 0079).
+    const previousPrns: string[] = Array.isArray(request.fonepay_prns) ? request.fonepay_prns : [];
     await adminClient
       .from('service_requests')
-      .update({ payment_method: 'online', fonepay_prn: prn })
+      .update({ payment_method: 'online', fonepay_prn: prn, fonepay_prns: [...previousPrns, prn] })
       .eq('id', service_request_id);
 
     return new Response(JSON.stringify({ qrMessage: result.qrMessage, prn, amount }), {
