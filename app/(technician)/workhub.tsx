@@ -17,11 +17,15 @@ import {
 import { PersonAvatar } from '../../lib/components/PersonAvatar';
 import { CategoryBadge } from '../../lib/components/CategoryBadge';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
+import { PaymentStatusSheet, PaymentChip } from '../../lib/components/PaymentStatusSheet';
 import { WEB_SIDEBAR_MIN_WIDTH } from '../../lib/components/web/WebSidebarShell';
 import type { ServiceRequest } from '../../types/database.types';
 
 const BLUE = '#2563EB';
+// A supervisor also handles the money side, so jobs finished but not yet
+// settled stay on their list (set_job_payment lets them record it).
 const LIVE: ServiceRequest['status'][] = ['pending', 'approved', 'assigned', 'in_progress'];
+const isUnsettled = (r: ServiceRequest) => r.status === 'resolved' && r.payment_status !== 'paid';
 
 function money(n: number | null | undefined): string {
   return n == null ? '—' : `NPR ${Math.round(Number(n)).toLocaleString()}`;
@@ -105,6 +109,7 @@ export default function TechnicianWorkHub() {
   const wide = Platform.OS === 'web' && width >= WEB_SIDEBAR_MIN_WIDTH;
 
   const [picking, setPicking] = useState<ServiceRequest | null>(null);
+  const [payingFor, setPayingFor] = useState<ServiceRequest | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // RLS hands a supervisor their employer's jobs and nobody else's, so no
@@ -114,7 +119,10 @@ export default function TechnicianWorkHub() {
     enabled: isSupervisor,
     queryOptions: { refetchInterval: 30_000 },
   });
-  const jobs = useMemo(() => (requests ?? []).filter((r) => LIVE.includes(r.status)), [requests]);
+  const jobs = useMemo(
+    () => (requests ?? []).filter((r) => LIVE.includes(r.status) || isUnsettled(r)),
+    [requests]
+  );
   const nameOf = (id: string | null) =>
     id ? (roster.find((m) => m.technician_id === id)?.full_name ?? 'A technician') : null;
 
@@ -204,6 +212,7 @@ export default function TechnicianWorkHub() {
                       </Text>
                     </View>
                     {!!holder && <Text className="text-[11.5px] text-gray-600">{holder}</Text>}
+                    <PaymentChip request={r} total={Number(r.quoted_price ?? 0)} />
                     <Text className="text-[11.5px] font-semibold text-gray-700">{money(r.quoted_price)}</Text>
                   </View>
                 </View>
@@ -219,6 +228,16 @@ export default function TechnicianWorkHub() {
                     <Ionicons name="call-outline" size={15} color={BLUE} />
                   </Pressable>
                 )}
+                {r.status === 'resolved' ? (
+                  <Pressable
+                    onPress={() => setPayingFor(r)}
+                    className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg"
+                    style={{ backgroundColor: '#047857' }}
+                  >
+                    <Ionicons name="cash-outline" size={15} color="#FFFFFF" />
+                    <Text className="text-[12.5px] font-semibold text-white">Record payment</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   onPress={() => setPicking(r)}
                   disabled={busyId === r.id}
@@ -246,6 +265,15 @@ export default function TechnicianWorkHub() {
             </View>
           );
         })
+      )}
+
+      {payingFor && (
+        <PaymentStatusSheet
+          visible
+          request={payingFor}
+          total={Number(payingFor.quoted_price ?? 0)}
+          onClose={() => setPayingFor(null)}
+        />
       )}
 
       <PickTeammate

@@ -1,12 +1,14 @@
 // app/(reseller)/workhub.tsx
 import { useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView, Linking, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, Pressable, ScrollView, Modal, Linking, Platform, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../lib/hooks/useAuth';
 import { useSupabaseQuery, useSupabaseUpdate } from '../../lib/hooks/useSupabase';
 import { useMyEmployees } from '../../lib/hooks/useTechnicianEmployment';
+import { useRankedTechnicians } from '../../lib/hooks/useTechnicianRanking';
+import { assignTechnician, showJobSentAlert } from '../../lib/utils/assignTechnician';
 import { PersonAvatar } from '../../lib/components/PersonAvatar';
 import { CategoryBadge } from '../../lib/components/CategoryBadge';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
@@ -187,6 +189,99 @@ function Chip({ label, color, bg }: { label: string; color: string; bg: string }
   );
 }
 
+interface PickPerson {
+  id: string;
+  name: string | null;
+  photoUrl: string | null;
+  line: string;
+  free?: boolean;
+}
+
+/** Who should do this job. Two lists, because they are two decisions: the
+ * people who work for you (pick one, it goes straight to them) and the
+ * freelancers nearby (sending one is a request they can turn down). */
+function AssignSheet({
+  request,
+  mode,
+  people,
+  loading,
+  onPick,
+  onClose,
+  busy,
+}: {
+  request: ServiceRequest | null;
+  mode: 'staff' | 'freelance';
+  people: PickPerson[];
+  loading: boolean;
+  onPick: (person: PickPerson) => void;
+  onClose: () => void;
+  busy: boolean;
+}) {
+  if (!request) return null;
+  const staff = mode === 'staff';
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable className="flex-1 items-center justify-center bg-black/50 px-4" onPress={onClose}>
+        <Pressable onPress={() => {}} className="w-full overflow-hidden rounded-2xl bg-white" style={{ maxWidth: 420, maxHeight: '85%' }}>
+          <View className="flex-row items-center gap-2.5 px-5 py-4" style={{ backgroundColor: staff ? BLUE : '#6D28D9' }}>
+            <View className="flex-1">
+              <Text className="text-[16px] font-bold text-white">
+                {staff ? 'Give this to your staff' : 'Request a freelance technician'}
+              </Text>
+              <Text className="mt-0.5 text-[11.5px] text-white/85" numberOfLines={1}>
+                {request.issue_type} · {request.customer_name ?? 'Customer'}
+              </Text>
+            </View>
+            <Pressable onPress={onClose} hitSlop={8} accessibilityLabel="Close">
+              <Ionicons name="close" size={22} color="#FFFFFF" />
+            </Pressable>
+          </View>
+
+          <ScrollView>
+            {loading ? (
+              <Text className="px-5 py-5 text-sm text-gray-500">Loading…</Text>
+            ) : people.length === 0 ? (
+              <Text className="px-5 py-5 text-sm text-gray-500">
+                {staff
+                  ? 'Nobody works for you yet - add your team under My team.'
+                  : 'No freelance technician is free right now.'}
+              </Text>
+            ) : (
+              people.map((person, i) => (
+                <Pressable
+                  key={person.id}
+                  onPress={() => !busy && onPick(person)}
+                  disabled={busy}
+                  className={`flex-row items-center gap-3 px-5 py-3.5 disabled:opacity-60 ${i === people.length - 1 ? '' : 'border-b border-gray-100'}`}
+                >
+                  <PersonAvatar name={person.name} photoUrl={person.photoUrl} size={36} bg={staff ? 'bg-blue-600' : 'bg-purple-600'} />
+                  <View className="flex-1">
+                    <Text className="text-[14px] font-semibold text-gray-900" numberOfLines={1}>
+                      {person.name ?? 'Technician'}
+                    </Text>
+                    <Text className="text-[11.5px] text-gray-500" numberOfLines={1}>
+                      {person.line}
+                    </Text>
+                  </View>
+                  <Text className="text-[12px] font-semibold" style={{ color: staff ? BLUE : '#6D28D9' }}>
+                    {staff ? 'Assign' : 'Request'}
+                  </Text>
+                </Pressable>
+              ))
+            )}
+          </ScrollView>
+
+          <Text className="border-t border-gray-100 px-5 py-3 text-[11px] leading-[16px] text-gray-500">
+            {staff
+              ? 'It rings on their phone; they accept or reject it.'
+              : "A freelancer isn't on your team - they get the same ringing request and can turn it down."}
+          </Text>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 /** The list the Work Hub opens on: one line per job with the few things
  * usually being checked - what it is, who it's for, who has it, and
  * whether it's been paid. The board (who's carrying what) is a tap away
@@ -195,14 +290,14 @@ function JobSheet({
   jobs,
   technicianName,
   onAssign,
-  onOpenToTeam,
+  onRequest,
   busyId,
   wide,
 }: {
   jobs: ServiceRequest[];
   technicianName: (id: string) => string;
   onAssign: (request: ServiceRequest) => void;
-  onOpenToTeam: (request: ServiceRequest) => void;
+  onRequest: (request: ServiceRequest) => void;
   busyId: string | null;
   wide: boolean;
 }) {
@@ -259,25 +354,24 @@ function JobSheet({
                 )}
                 <Pressable
                   onPress={() => onAssign(r)}
-                  className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white"
+                  className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg"
+                  style={{ backgroundColor: BLUE }}
                 >
-                  <Ionicons name="person-add-outline" size={15} color="#374151" />
-                  <Text className="text-[12.5px] font-semibold text-gray-700">
+                  <Ionicons name="person-add-outline" size={15} color="#FFFFFF" />
+                  <Text className="text-[12.5px] font-semibold text-white">
                     {r.technician_id ? 'Reassign' : 'Assign'}
                   </Text>
                 </Pressable>
-                {!r.technician_id && !r.open_to_team && (
-                  <Pressable
-                    onPress={() => onOpenToTeam(r)}
-                    className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg"
-                    style={{ backgroundColor: BLUE }}
-                  >
-                    <Ionicons name="megaphone-outline" size={15} color="#FFFFFF" />
-                    <Text className="text-[12.5px] font-semibold text-white">
-                      {busyId === r.id ? 'Opening…' : 'Open to team'}
-                    </Text>
-                  </Pressable>
-                )}
+                <Pressable
+                  onPress={() => onRequest(r)}
+                  className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border bg-white"
+                  style={{ borderColor: '#DDD6FE' }}
+                >
+                  <Ionicons name="paper-plane-outline" size={15} color="#6D28D9" />
+                  <Text className="text-[12.5px] font-semibold" style={{ color: '#6D28D9' }}>
+                    Request
+                  </Text>
+                </Pressable>
               </View>
             </View>
           );
@@ -340,21 +434,22 @@ function JobSheet({
             <View className="flex-row px-3 py-2" style={{ width: 210, gap: 8 }}>
               <Pressable
                 onPress={() => onAssign(r)}
-                className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white"
+                className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg"
+                style={{ backgroundColor: BLUE }}
               >
-                <Ionicons name="person-add-outline" size={15} color="#374151" />
-                <Text className="text-[12.5px] font-semibold text-gray-700">{r.technician_id ? 'Reassign' : 'Assign'}</Text>
+                <Ionicons name="person-add-outline" size={15} color="#FFFFFF" />
+                <Text className="text-[12.5px] font-semibold text-white">{r.technician_id ? 'Reassign' : 'Assign'}</Text>
               </Pressable>
-              {!r.technician_id && !r.open_to_team && (
-                <Pressable
-                  onPress={() => onOpenToTeam(r)}
-                  className="h-9 w-9 items-center justify-center rounded-lg"
-                  style={{ backgroundColor: BLUE }}
-                  accessibilityLabel="Open to team"
-                >
-                  <Ionicons name="megaphone-outline" size={15} color="#FFFFFF" />
-                </Pressable>
-              )}
+              <Pressable
+                onPress={() => onRequest(r)}
+                className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border bg-white"
+                style={{ borderColor: '#DDD6FE' }}
+              >
+                <Ionicons name="paper-plane-outline" size={15} color="#6D28D9" />
+                <Text className="text-[12.5px] font-semibold" style={{ color: '#6D28D9' }}>
+                  Request
+                </Text>
+              </Pressable>
             </View>
           </View>
         );
@@ -376,6 +471,8 @@ export default function WorkHub() {
   const updateRequest = useSupabaseUpdate('service_requests');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null);
+  const [assigning, setAssigning] = useState<{ request: ServiceRequest; mode: 'staff' | 'freelance' } | null>(null);
+  const [sending, setSending] = useState(false);
   // The sheet answers "what is on today"; the board answers "who is
   // carrying it". Opening on the lighter of the two.
   const [view, setView] = useState<'sheet' | 'board'>('sheet');
@@ -386,6 +483,12 @@ export default function WorkHub() {
     enabled: !!userId,
   });
   const { data: employees } = useMyEmployees(userId);
+  // Freelancers are ranked by the same rules the job page uses - nearest
+  // and free first, and never someone else's employee while on duty.
+  const { rankedTechnicians, isLoading: loadingTechnicians } = useRankedTechnicians(
+    assigning?.request.location_data,
+    userId
+  );
 
   // This page is the work still to finish: anything resolved or cancelled
   // drops off it (the month's record below still has those), and whatever
@@ -474,6 +577,52 @@ export default function WorkHub() {
     }
   }
 
+  const staffChoices: PickPerson[] = useMemo(
+    () =>
+      employees.map(({ employment, profile }) => ({
+        id: profile.id,
+        name: profile.full_name,
+        photoUrl: profile.avatar_url,
+        line: [employment.job_title, `On duty ${employment.work_start_time?.slice(0, 5) ?? '09:00'}–${employment.work_end_time?.slice(0, 5) ?? '17:00'}`]
+          .filter(Boolean)
+          .join(' · '),
+      })),
+    [employees]
+  );
+
+  const freelanceChoices: PickPerson[] = useMemo(
+    () =>
+      rankedTechnicians
+        .filter((t) => !t.isYourEmployee)
+        .map((t) => ({
+          id: t.id,
+          name: t.full_name,
+          photoUrl: t.avatar_url,
+          line: [
+            t.distance != null ? `${t.distance.toFixed(1)} km away` : t.city ?? 'Location unknown',
+            t.is_available ? 'Free now' : 'Busy',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        })),
+    [rankedTechnicians]
+  );
+
+  async function sendJobTo(person: PickPerson) {
+    if (!assigning) return;
+    setSending(true);
+    try {
+      await assignTechnician({ requestId: assigning.request.id, technicianId: person.id });
+      await queryClient.invalidateQueries({ queryKey: ['service_requests'] });
+      setAssigning(null);
+      showJobSentAlert(person.name);
+    } catch (err) {
+      showAlert('Could not send the job', getErrorMessage(err));
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function setOpenToTeam(request: ServiceRequest, open: boolean) {
     setBusyId(request.id);
     try {
@@ -521,8 +670,8 @@ export default function WorkHub() {
                 request={r}
                 footer={
                   <View className="mt-2.5 flex-row" style={{ gap: 8 }}>
-                    {smallButton('Assign', 'person-add-outline', () => router.push(`/(reseller)/request/${r.id}` as any), 'ghost')}
-                    {smallButton(busyId === r.id ? 'Opening…' : 'Open to team', 'megaphone-outline', () => setOpenToTeam(r, true), 'blue')}
+                    {smallButton('Assign', 'person-add-outline', () => setAssigning({ request: r, mode: 'staff' }), 'blue')}
+                    {smallButton(busyId === r.id ? 'Opening…' : 'Open to team', 'megaphone-outline', () => setOpenToTeam(r, true), 'ghost')}
                   </View>
                 }
               />
@@ -545,7 +694,7 @@ export default function WorkHub() {
                 request={r}
                 footer={
                   <View className="mt-2.5 flex-row" style={{ gap: 8 }}>
-                    {smallButton('Assign instead', 'person-add-outline', () => router.push(`/(reseller)/request/${r.id}` as any), 'ghost')}
+                    {smallButton('Assign instead', 'person-add-outline', () => setAssigning({ request: r, mode: 'staff' }), 'ghost')}
                     {smallButton(busyId === r.id ? 'Removing…' : 'Take back', 'close-circle-outline', () => setOpenToTeam(r, false), 'ghost')}
                   </View>
                 }
@@ -610,6 +759,15 @@ export default function WorkHub() {
           {overdueCount > 0 ? ` · ${overdueCount} overdue` : ''}
         </Text>
       </View>
+      <Pressable
+        onPress={() => router.push('/(reseller)/new-request?from=workhub' as any)}
+        className="h-9 flex-row items-center gap-1.5 rounded-lg px-3"
+        style={{ backgroundColor: BLUE }}
+      >
+        <Ionicons name="add" size={16} color="#FFFFFF" />
+        <Text className="text-[12.5px] font-semibold text-white">Add work</Text>
+      </Pressable>
+
       {view === 'sheet' && (
         <>
           <Pressable
@@ -667,8 +825,8 @@ export default function WorkHub() {
       <JobSheet
         jobs={live}
         technicianName={technicianName}
-        onAssign={(r) => router.push(`/(reseller)/request/${r.id}` as any)}
-        onOpenToTeam={(r) => setOpenToTeam(r, true)}
+        onAssign={(r) => setAssigning({ request: r, mode: 'staff' })}
+        onRequest={(r) => setAssigning({ request: r, mode: 'freelance' })}
         busyId={busyId}
         wide={wide}
       />
@@ -676,6 +834,16 @@ export default function WorkHub() {
         Only work still to finish is listed - anything done or cancelled drops off. PDF and Excel above save the last
         30 days in full, finished jobs included ({monthRows.length} job{monthRows.length === 1 ? '' : 's'}).
       </Text>
+
+      <AssignSheet
+        request={assigning?.request ?? null}
+        mode={assigning?.mode ?? 'staff'}
+        people={assigning?.mode === 'freelance' ? freelanceChoices : staffChoices}
+        loading={assigning?.mode === 'freelance' && loadingTechnicians}
+        onPick={sendJobTo}
+        onClose={() => setAssigning(null)}
+        busy={sending}
+      />
 
       <Pressable
         onPress={() => setView('board')}

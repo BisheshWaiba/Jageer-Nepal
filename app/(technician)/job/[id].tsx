@@ -14,6 +14,7 @@ import { CategoryBadge } from '../../../lib/components/CategoryBadge';
 import { ChalanPhotos } from '../../../lib/components/ChalanPhotos';
 import { HoldRequestModal } from '../../../lib/components/HoldRequestModal';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
+import { PaymentStatusSheet, PaymentChip, jobTotal, money as npr } from '../../../lib/components/PaymentStatusSheet';
 import { formatDuration, formatTimestamp } from '../../../lib/utils/duration';
 import { decimalInput, digitsInput } from '../../../lib/utils/number';
 import type { RequestStatus } from '../../../types/database.types';
@@ -120,6 +121,7 @@ function JobCard({ id }: { id: string }) {
   const [parts, setParts] = useState<PartRow[]>([{ name: '', quantity: '1', cost: '' }]);
   const [laborCost, setLaborCost] = useState('');
   const [answering, setAnswering] = useState<'accept' | 'reject' | 'reopen' | null>(null);
+  const [showPayment, setShowPayment] = useState(false);
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [holdSubmitting, setHoldSubmitting] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -284,6 +286,10 @@ function JobCard({ id }: { id: string }) {
   const resellerName = reseller?.full_name;
   const resellerPhone = reseller?.phone;
   const hasResellerContact = hasAccepted && !!(resellerName || resellerPhone);
+  const paymentTotal = jobTotal(
+    request,
+    jobCard ? Number(jobCard.labor_cost ?? 0) + Number(jobCard.parts_cost ?? 0) : null
+  );
 
   return (
     <ScrollView className="flex-1 bg-gray-50 px-6 pt-4" contentContainerStyle={{ paddingBottom: 40 }}>
@@ -295,6 +301,11 @@ function JobCard({ id }: { id: string }) {
       <Text className="mb-6 text-gray-600">{request.description}</Text>
 
       <StageStrip status={request.status} paid={request.payment_status === 'paid'} />
+      {request.status === 'resolved' && (
+        <View className="mb-4 -mt-3 flex-row">
+          <PaymentChip request={request} total={paymentTotal} />
+        </View>
+      )}
 
       <View className="mb-6 rounded-xl bg-white p-5">
         <Text className="text-sm uppercase tracking-wide text-gray-400">Current status</Text>
@@ -553,13 +564,40 @@ function JobCard({ id }: { id: string }) {
       />
 
       {request.status === 'resolved' && request.payment_status !== 'paid' && (
-        <View className="mb-4 flex-row items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50 p-4">
-          <Ionicons name="cash-outline" size={18} color="#1D4ED8" />
-          <Text className="flex-1 text-xs leading-[17px] text-blue-900">
-            Job marked complete. It closes once the reseller collects the payment.
-          </Text>
+        <View className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <View className="flex-row items-center gap-2.5">
+            <Ionicons name="cash-outline" size={18} color="#1D4ED8" />
+            <Text className="flex-1 text-xs leading-[17px] text-blue-900">
+              {request.payment_status === 'partial'
+                ? `Part paid - ${npr(Number(request.amount_paid ?? 0))} in, ${npr(Math.max(paymentTotal - Number(request.amount_paid ?? 0), 0))} still due.`
+                : 'Job marked complete. It closes once the payment is collected.'}
+            </Text>
+          </View>
+          {/* You did the work, so you can say what came in - the reseller
+              and their supervisor can too (set_job_payment decides). */}
+          <Pressable
+            onPress={() => setShowPayment(true)}
+            className="mt-3 flex-row items-center justify-center gap-2 rounded-lg border border-blue-300 bg-white py-2.5"
+          >
+            <Ionicons name="cash-outline" size={16} color="#1D4ED8" />
+            <Text className="text-sm font-semibold text-blue-800">Record what the customer paid</Text>
+          </Pressable>
         </View>
       )}
+
+      {request.status === 'resolved' && request.payment_status === 'paid' && (
+        <View className="mb-4 flex-row items-center gap-2.5 rounded-xl border border-green-200 bg-green-50 p-4">
+          <Ionicons name="checkmark-done-circle" size={18} color="#15803D" />
+          <Text className="flex-1 text-xs leading-[17px] text-green-900">Paid in full - this job is closed.</Text>
+        </View>
+      )}
+
+      <PaymentStatusSheet
+        visible={showPayment}
+        request={request}
+        total={paymentTotal}
+        onClose={() => setShowPayment(false)}
+      />
 
       {request.status === 'resolved' && request.payment_status === 'paid' && (
         <View className="mb-4 flex-row items-center gap-2.5 rounded-xl border border-green-200 bg-green-50 p-4">

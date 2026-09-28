@@ -118,7 +118,7 @@ export interface RequestLocation {
   address: string;
 }
 
-export type PaymentStatus = 'unpaid' | 'paid';
+export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'cash' | 'online';
 export type HoldStatus = 'none' | 'requested' | 'on_hold';
 
@@ -163,6 +163,9 @@ export interface ServiceRequest {
   /** Offered to the whole team: any of this reseller's employees can take
    * it, first come (see migration 0076). */
   open_to_team: boolean;
+  /** How much of the job has actually been received (migration 0078).
+   * Only meaningful while payment_status is 'partial'. */
+  amount_paid: number;
 }
 
 export interface Product {

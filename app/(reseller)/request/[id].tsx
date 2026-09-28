@@ -29,6 +29,7 @@ import {
   type TimelineStep,
 } from '../../../lib/components/detail/DetailLayout';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
+import { PaymentStatusSheet, PaymentChip, setJobPayment } from '../../../lib/components/PaymentStatusSheet';
 import { parseAmount } from '../../../lib/utils/number';
 import { assignTechnician, showJobSentAlert } from '../../../lib/utils/assignTechnician';
 import { reopenCompletedJob, withdrawJobOffer, claimServiceRequest } from '../../../lib/hooks/useJobOffers';
@@ -386,9 +387,11 @@ function JobTracking({ request }: { request: ServiceRequest }) {
   const [chatFocus, setChatFocus] = useState(0);
 
   const paid = request.payment_status === 'paid';
+  const partlyPaid = request.payment_status === 'partial';
   const finished = request.status === 'resolved';
   const cancelled = request.status === 'cancelled';
   const canCollect = finished && !paid;
+  const [showPayment, setShowPayment] = useState(false);
   const awaitingAnswer = request.status === 'assigned';
 
   const customerName = request.customer_name ?? customer?.full_name;
@@ -407,10 +410,11 @@ function JobTracking({ request }: { request: ServiceRequest }) {
 
   async function handleMarkPaid() {
     try {
-      await updateRequest.mutateAsync({
-        id: request.id,
-        values: { payment_status: 'paid', paid_at: new Date().toISOString() },
-      });
+      // Goes through set_job_payment like every other payment change, so
+      // the ledger entry and the amount received stay in step whoever
+      // makes the change (migration 0078).
+      await setJobPayment(request.id, 'paid');
+      refetch();
     } catch (err) {
       showAlert('Could not update', getErrorMessage(err));
     }
@@ -422,7 +426,15 @@ function JobTracking({ request }: { request: ServiceRequest }) {
     refetch();
   }
 
-  const pill = cancelled ? 'Cancelled' : paid ? 'Completed' : finished ? 'Awaiting payment' : 'Job in progress';
+  const pill = cancelled
+    ? 'Cancelled'
+    : paid
+      ? 'Completed'
+      : partlyPaid
+        ? 'Part paid'
+        : finished
+          ? 'Awaiting payment'
+          : 'Job in progress';
   const amountLabel = paid ? 'Paid' : finished ? 'To collect' : 'Job value';
 
   const markPaidButton = (
@@ -452,6 +464,13 @@ function JobTracking({ request }: { request: ServiceRequest }) {
               {/* On a phone the same button is already pinned to the bottom bar. */}
               {wide && markPaidButton}
               <DetailButton label="Show QR to pay online" icon="qr-code-outline" kind="ghost" height={42} onPress={() => setShowQr(true)} />
+              <DetailButton
+                label={partlyPaid ? `Part paid · ${money(Number(request.amount_paid ?? 0))} in` : 'Record a part payment'}
+                icon="contrast-outline"
+                kind="ghost"
+                height={42}
+                onPress={() => setShowPayment(true)}
+              />
               <Pressable onPress={confirmReopen} disabled={reopening} className="items-center py-1.5 disabled:opacity-50">
                 <Text className="text-[12.5px] font-semibold text-amber-700">
                   {reopening ? 'Reopening…' : 'Marked complete by mistake? Reopen job'}
@@ -535,6 +554,15 @@ function JobTracking({ request }: { request: ServiceRequest }) {
       )}
 
       <PaymentQrModal visible={showQr} serviceRequestId={request.id} onClose={() => setShowQr(false)} onPaid={handlePaid} />
+      <PaymentStatusSheet
+        visible={showPayment}
+        request={request}
+        total={Number(amountDue ?? 0) + Number(request.amount_paid ?? 0) || Number(request.quoted_price ?? 0)}
+        onClose={() => {
+          setShowPayment(false);
+          refetch();
+        }}
+      />
       <MessagesCard requestId={request.id} focusToken={chatFocus} />
     </DetailShell>
   );
