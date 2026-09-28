@@ -10,6 +10,7 @@ import { useMyEmployees } from '../../lib/hooks/useTechnicianEmployment';
 import { PersonAvatar } from '../../lib/components/PersonAvatar';
 import { CategoryBadge } from '../../lib/components/CategoryBadge';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
+import { exportWorkPdf, exportWorkXlsx, type WorkRecordRow } from '../../lib/utils/exportWorkRecord';
 import { WEB_SIDEBAR_MIN_WIDTH } from '../../lib/components/web/WebSidebarShell';
 import type { Profile, ServiceRequest } from '../../types/database.types';
 
@@ -18,6 +19,37 @@ const BLUE = '#2563EB';
 /** Jobs still in play - anything finished, paid or cancelled has no place
  * on a board about who is doing what today. */
 const LIVE_STATUSES: ServiceRequest['status'][] = ['pending', 'approved', 'assigned', 'in_progress'];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Plain words for the saved record - "in_progress" is the database's
+ * word, not one a reader wants in a spreadsheet. */
+const STATUS_WORDS: Record<ServiceRequest['status'], string> = {
+  pending: 'Not started',
+  quoted: 'Quote sent',
+  approved: 'Approved',
+  assigned: 'Waiting to accept',
+  in_progress: 'Working on it',
+  resolved: 'Finished',
+  cancelled: 'Cancelled',
+};
+
+/** When the job was meant to happen: its appointment if it has one, else
+ * when it was raised. */
+function dueAt(request: ServiceRequest): number {
+  if (request.scheduled_date) {
+    const time = request.scheduled_time?.slice(0, 5) ?? '23:59';
+    const parsed = new Date(`${request.scheduled_date}T${time}`).getTime();
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return new Date(request.created_at).getTime();
+}
+
+/** Still open a day after it should have been done - the jobs worth
+ * chasing, which is what this page is for. */
+function isOverdue(request: ServiceRequest): boolean {
+  return Date.now() - dueAt(request) > DAY_MS;
+}
 
 function money(n: number | null | undefined): string {
   return n == null ? '—' : `NPR ${Math.round(Number(n)).toLocaleString()}`;
@@ -34,6 +66,16 @@ function statusChip(request: ServiceRequest): { label: string; color: string; bg
   if (request.status === 'assigned') return { label: 'Waiting for them to accept', color: '#B45309', bg: '#FFFBEB' };
   if (request.open_to_team) return { label: 'Waiting to be picked up', color: '#047857', bg: '#ECFDF5' };
   return { label: 'Not started', color: '#6B7280', bg: '#F3F4F6' };
+}
+
+function OverdueChip() {
+  return (
+    <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: '#FEF2F2' }}>
+      <Text className="text-[10.5px] font-bold" style={{ color: '#B91C1C' }}>
+        Overdue
+      </Text>
+    </View>
+  );
 }
 
 function JobCard({ request, footer }: { request: ServiceRequest; footer?: React.ReactNode }) {
@@ -58,6 +100,7 @@ function JobCard({ request, footer }: { request: ServiceRequest; footer?: React.
                 {chip.label}
               </Text>
             </View>
+            {isOverdue(request) && <OverdueChip />}
             <Text className="text-[11.5px] font-semibold text-gray-700">{money(request.quoted_price)}</Text>
           </View>
         </View>
@@ -197,6 +240,7 @@ function JobSheet({
                 </Text>
                 <View className="mt-1.5 flex-row flex-wrap items-center" style={{ gap: 6 }}>
                   <Chip {...chip} />
+                  {isOverdue(r) && <OverdueChip />}
                   <Chip {...pay} />
                   <Text className="text-[11.5px] text-gray-500">
                     {r.technician_id ? technicianName(r.technician_id) : 'Nobody yet'}
@@ -286,8 +330,9 @@ function JobSheet({
             <Text className={`${cell} text-[12.5px] text-gray-700`} style={{ width: 150 }} numberOfLines={1}>
               {r.technician_id ? technicianName(r.technician_id) : r.open_to_team ? 'Open to team' : 'Nobody yet'}
             </Text>
-            <View className={cell} style={{ width: 170 }}>
+            <View className={cell} style={{ width: 170, gap: 4 }}>
               <Chip {...statusChip(r)} />
+              {isOverdue(r) && <OverdueChip />}
             </View>
             <View className={cell} style={{ width: 100 }}>
               <Chip {...pay} />
@@ -324,11 +369,13 @@ function JobSheet({
  * place to hand a job to the whole team at once. */
 export default function WorkHub() {
   const userId = useAuthStore((state) => state.session?.user.id);
+  const businessName = useAuthStore((state) => state.profile?.business_name);
   const { width } = useWindowDimensions();
   const wide = Platform.OS === 'web' && width >= WEB_SIDEBAR_MIN_WIDTH;
   const queryClient = useQueryClient();
   const updateRequest = useSupabaseUpdate('service_requests');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null);
   // The sheet answers "what is on today"; the board answers "who is
   // carrying it". Opening on the lighter of the two.
   const [view, setView] = useState<'sheet' | 'board'>('sheet');
@@ -340,10 +387,20 @@ export default function WorkHub() {
   });
   const { data: employees } = useMyEmployees(userId);
 
-  const live = useMemo(
-    () => (requests ?? []).filter((r) => LIVE_STATUSES.includes(r.status)),
-    [requests]
-  );
+  // This page is the work still to finish: anything resolved or cancelled
+  // drops off it (the month's record below still has those), and whatever
+  // is past its day floats to the top.
+  const live = useMemo(() => {
+    const open = (requests ?? []).filter((r) => LIVE_STATUSES.includes(r.status));
+    return [...open].sort((a, b) => {
+      const overdue = Number(isOverdue(b)) - Number(isOverdue(a));
+      if (overdue !== 0) return overdue;
+      const unassigned = Number(!b.technician_id) - Number(!a.technician_id);
+      if (unassigned !== 0) return unassigned;
+      return dueAt(a) - dueAt(b);
+    });
+  }, [requests]);
+  const overdueCount = useMemo(() => live.filter(isOverdue).length, [live]);
 
   const byTechnician = useMemo(() => {
     const map = new Map<string, ServiceRequest[]>();
@@ -372,6 +429,50 @@ export default function WorkHub() {
     employees.find((e) => e.profile.id === id)?.profile.full_name ??
     profileById.get(id)?.full_name ??
     'Technician';
+
+  // The page shows open work only; the saved record is the whole month,
+  // finished jobs included - that is the point of keeping it.
+  const monthRows = useMemo((): WorkRecordRow[] => {
+    const since = Date.now() - 30 * DAY_MS;
+    return (requests ?? [])
+      .filter((r) => new Date(r.created_at).getTime() >= since || dueAt(r) >= since)
+      .sort((a, b) => dueAt(a) - dueAt(b))
+      .map((r) => ({
+        Date: r.scheduled_date ?? new Date(r.created_at).toISOString().slice(0, 10),
+        Time: r.scheduled_time?.slice(0, 5) ?? '',
+        Job: r.issue_type,
+        Customer: r.customer_name ?? '',
+        Phone: r.customer_phone ?? '',
+        Address: r.location_data?.address ?? '',
+        'Assigned to': r.technician_id ? technicianName(r.technician_id) : r.open_to_team ? 'Open to team' : 'Nobody yet',
+        Status: STATUS_WORDS[r.status] ?? r.status,
+        Payment: r.payment_status === 'paid' ? 'Paid' : 'Unpaid',
+        Amount: r.quoted_price == null ? '' : Number(r.quoted_price),
+      }));
+  }, [requests, employees, allProfiles]);
+
+  const periodLabel = `${new Date(Date.now() - 30 * DAY_MS).toISOString().slice(0, 10)} to ${new Date().toISOString().slice(0, 10)}`;
+  const fileStem = `work-record-${new Date().toISOString().slice(0, 10)}`;
+
+  async function saveRecord(kind: 'pdf' | 'xlsx') {
+    if (monthRows.length === 0) {
+      showAlert('Nothing to save', 'There is no work in the last 30 days yet.');
+      return;
+    }
+    setExporting(kind);
+    try {
+      const title = `${businessName || 'Work record'} — last 30 days`;
+      if (kind === 'pdf') {
+        await exportWorkPdf(title, `${periodLabel} · ${monthRows.length} jobs`, monthRows);
+      } else {
+        await exportWorkXlsx(`${fileStem}.xlsx`, 'Work record', monthRows);
+      }
+    } catch (err) {
+      showAlert('Could not save the record', getErrorMessage(err));
+    } finally {
+      setExporting(null);
+    }
+  }
 
   async function setOpenToTeam(request: ServiceRequest, open: boolean) {
     setBusyId(request.id);
@@ -506,8 +607,34 @@ export default function WorkHub() {
         </Text>
         <Text className="mt-0.5 text-[12px] text-gray-500">
           {unassigned.length} waiting for someone · {openToTeam.length} open to the team
+          {overdueCount > 0 ? ` · ${overdueCount} overdue` : ''}
         </Text>
       </View>
+      {view === 'sheet' && (
+        <>
+          <Pressable
+            onPress={() => saveRecord('pdf')}
+            disabled={!!exporting}
+            className="h-9 flex-row items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 disabled:opacity-50"
+          >
+            <Ionicons name="document-text-outline" size={15} color="#B91C1C" />
+            <Text className="text-[12.5px] font-semibold text-gray-700">
+              {exporting === 'pdf' ? 'Saving…' : 'PDF'}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => saveRecord('xlsx')}
+            disabled={!!exporting}
+            className="h-9 flex-row items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 disabled:opacity-50"
+          >
+            <Ionicons name="grid-outline" size={15} color="#047857" />
+            <Text className="text-[12.5px] font-semibold text-gray-700">
+              {exporting === 'xlsx' ? 'Saving…' : 'Excel'}
+            </Text>
+          </Pressable>
+        </>
+      )}
+
       {view === 'board' && (
         <Pressable
           onPress={() => setView('sheet')}
@@ -545,6 +672,11 @@ export default function WorkHub() {
         busyId={busyId}
         wide={wide}
       />
+      <Text className="px-1 text-[11.5px] leading-[17px] text-gray-400">
+        Only work still to finish is listed - anything done or cancelled drops off. PDF and Excel above save the last
+        30 days in full, finished jobs included ({monthRows.length} job{monthRows.length === 1 ? '' : 's'}).
+      </Text>
+
       <Pressable
         onPress={() => setView('board')}
         className="flex-row items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white py-3.5"

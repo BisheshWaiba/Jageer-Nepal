@@ -107,6 +107,9 @@ export interface TechnicianEmployment {
   /** The employer's own label and private note for this employee. */
   job_title: string | null;
   employer_note: string | null;
+  /** 'supervisor' can hand this reseller's work to the rest of the team;
+   * 'technician' just carries their own jobs (migration 0077). */
+  staff_role: 'technician' | 'supervisor';
 }
 
 export interface RequestLocation {

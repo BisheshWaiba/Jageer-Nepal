@@ -300,6 +300,7 @@ function TechnicianEmployee({ employmentId }: { employmentId: string }) {
             note: match.employment.employer_note ?? '',
             start: match.employment.work_start_time?.slice(0, 5) ?? '09:00',
             end: match.employment.work_end_time?.slice(0, 5) ?? '17:00',
+            staffRole: (match.employment.staff_role ?? 'technician') as 'technician' | 'supervisor',
           }
         : null,
     [match?.employment]
@@ -325,6 +326,7 @@ function TechnicianEmployee({ employmentId }: { employmentId: string }) {
         employer_note: form.note.trim() || null,
         work_start_time: form.start,
         work_end_time: form.end,
+        staff_role: form.staffRole,
       });
       editor.markSaved();
       showAlert('Saved', `${name}'s details are updated.`);
@@ -377,6 +379,42 @@ function TechnicianEmployee({ employmentId }: { employmentId: string }) {
         <Field label="Phone number">
           <ReadOnlyValue value={profile.phone} empty="No phone on their account" />
         </Field>
+        <Field
+          label="Role on your team"
+          hint="A supervisor gets their own Work Hub and can hand your jobs to the rest of the team. Only you can change this."
+        >
+          <View className="flex-row" style={{ gap: 10 }}>
+            {(
+              [
+                { key: 'technician', label: 'Technician', body: 'Carries their own jobs', icon: 'construct-outline' },
+                { key: 'supervisor', label: 'Supervisor', body: 'Can assign work to others', icon: 'people-outline' },
+              ] as const
+            ).map((option) => {
+              const active = form.staffRole === option.key;
+              return (
+                <Pressable
+                  key={option.key}
+                  onPress={() => setForm((f) => ({ ...f, staffRole: option.key }))}
+                  className="flex-1 rounded-xl p-3"
+                  style={{
+                    borderWidth: active ? 2 : 1,
+                    borderColor: active ? BLUE : '#D1D5DB',
+                    backgroundColor: active ? '#EFF6FF' : '#FFFFFF',
+                  }}
+                >
+                  <View className="flex-row items-center gap-1.5">
+                    <Ionicons name={option.icon} size={15} color={active ? BLUE : '#6B7280'} />
+                    <Text className={`text-[13.5px] font-bold ${active ? 'text-blue-700' : 'text-gray-700'}`}>
+                      {option.label}
+                    </Text>
+                  </View>
+                  <Text className="mt-0.5 text-[11px] text-gray-500">{option.body}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Field>
+
         <Field label="Job title" hint="Your label for what they do - they can't change it.">
           <Input value={form.jobTitle} onChangeText={(v) => setForm((f) => ({ ...f, jobTitle: v }))} placeholder="CCTV technician, helper, driver…" />
         </Field>

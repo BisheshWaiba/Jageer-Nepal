@@ -207,6 +207,57 @@ export function useEmployeeEmails(resellerId: string | undefined) {
   return useMemo(() => new Map((data ?? []).map((r) => [r.id, r.email])), [data]);
 }
 
+/** Whether the signed-in technician supervises their employer's team, and
+ * who else is on it. Both come from definer functions (migration 0077) -
+ * a technician cannot read the employment table of people other than
+ * themselves. */
+export function useMyStaffRole(technicianId: string | undefined) {
+  const { current } = useMyEmployment(technicianId);
+  return current?.status === 'accepted' ? (current.staff_role ?? 'technician') : null;
+}
+
+export interface TeamMate {
+  technician_id: string;
+  full_name: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+  job_title: string | null;
+  work_start_time: string | null;
+  work_end_time: string | null;
+  staff_role: 'technician' | 'supervisor';
+}
+
+export function useTeamRoster(enabled: boolean) {
+  const { data } = useQuery({
+    queryKey: ['my-team-roster'],
+    queryFn: async () => {
+      const { data: rows, error } = await (supabase as any).rpc('my_team_roster');
+      if (error) throw error;
+      return (rows ?? []) as TeamMate[];
+    },
+    enabled,
+  });
+  return data ?? [];
+}
+
+/** A supervisor hands a job to a teammate - it rings on their phone like
+ * any other offer - or opens it to the whole team. */
+export async function supervisorAssignJob(requestId: string, technicianId: string) {
+  const { error } = await (supabase as any).rpc('supervisor_assign_job', {
+    p_request_id: requestId,
+    p_technician_id: technicianId,
+  });
+  if (error) throw error;
+}
+
+export async function supervisorSetOpenToTeam(requestId: string, open: boolean) {
+  const { error } = await (supabase as any).rpc('supervisor_set_open_to_team', {
+    p_request_id: requestId,
+    p_open: open,
+  });
+  if (error) throw error;
+}
+
 /** Look up a technician by the email they signed up with. Sign-in emails
  * aren't readable from the client, so this goes through the
  * find_technician_by_email definer function (see migration 0073), which

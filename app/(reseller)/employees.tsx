@@ -203,6 +203,7 @@ function Section({ title, count, children }: { title: string; count?: number; ch
 }
 
 const BADGE = {
+  supervisor: { label: 'Supervisor', color: '#6D28D9', bg: '#F5F3FF' },
   account: { label: 'Jageer account', color: '#1D4ED8', bg: '#EFF6FF' },
   manual: { label: 'No account', color: '#4B5563', bg: '#F3F4F6' },
   signedUp: { label: 'Signed up · invite sent', color: '#B45309', bg: '#FFFBEB' },
@@ -536,7 +537,7 @@ export default function TechnicalEmployees() {
       phone: profile.phone,
       jobTitle: employment.job_title,
       hours: hours(employment),
-      badge: BADGE.account,
+      badge: employment.staff_role === 'supervisor' ? BADGE.supervisor : BADGE.account,
       onOpen: () => openEmployee(employment.id),
       onAssign: () => setAssignTo({ id: profile.id, name: profile.full_name ?? 'Technician' }),
     }));

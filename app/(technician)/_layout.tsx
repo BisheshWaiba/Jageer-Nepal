@@ -9,6 +9,7 @@ import { WebSidebarShell, WEB_SIDEBAR_MIN_WIDTH, type WebNavItem } from '../../l
 import { IncomingJobOffer } from '../../lib/components/IncomingJobOffer';
 import { TechnicianHoldNotice } from '../../lib/components/HoldNotice';
 import { useAuthStore } from '../../lib/hooks/useAuth';
+import { useMyStaffRole } from '../../lib/hooks/useTechnicianEmployment';
 
 const NAV_ITEMS: WebNavItem[] = [
   { href: '/(technician)/dashboard', label: 'Home', icon: 'home' },
@@ -16,9 +17,17 @@ const NAV_ITEMS: WebNavItem[] = [
   { href: '/(technician)/earnings', label: 'Earnings', icon: 'wallet' },
 ];
 
+// A supervisor gets one extra place: their employer's work, to hand out.
+const SUPERVISOR_NAV: WebNavItem[] = [
+  ...NAV_ITEMS.slice(0, 2),
+  { href: '/(technician)/workhub', label: 'Work Hub', icon: 'grid' },
+  ...NAV_ITEMS.slice(2),
+];
+
 export default function TechnicianLayout() {
   const { width } = useWindowDimensions();
   const userId = useAuthStore((state) => state.session?.user.id);
+  const isSupervisor = useMyStaffRole(userId) === 'supervisor';
   const isWideWeb = Platform.OS === 'web' && width >= WEB_SIDEBAR_MIN_WIDTH;
   const tabs = (
     <Tabs
@@ -44,6 +53,17 @@ export default function TechnicianLayout() {
         options={{ title: 'My Jobs', tabBarIcon: ({ color, focused }) => <TabIcon name="briefcase" color={color} focused={focused} /> }}
       />
       <Tabs.Screen
+        name="workhub"
+        options={{
+          title: 'Work Hub',
+          tabBarLabel: 'Work',
+          // Hidden unless their employer made them a supervisor - the
+          // screen itself says as much if it's reached directly.
+          href: isSupervisor ? undefined : null,
+          tabBarIcon: ({ color, focused }) => <TabIcon name="grid" color={color} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="earnings"
         options={{ title: 'Earnings', tabBarIcon: ({ color, focused }) => <TabIcon name="wallet" color={color} focused={focused} /> }}
       />
@@ -64,7 +84,7 @@ export default function TechnicianLayout() {
           whichever tab (or the sidebar) is open when an offer comes in. */}
       <View style={{ flex: 1 }}>
         {isWideWeb ? (
-          <WebSidebarShell items={NAV_ITEMS} roleLabel="Technician">
+          <WebSidebarShell items={isSupervisor ? SUPERVISOR_NAV : NAV_ITEMS} roleLabel="Technician">
             {tabs}
           </WebSidebarShell>
         ) : (
