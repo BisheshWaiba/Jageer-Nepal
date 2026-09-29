@@ -293,6 +293,7 @@ function JobSheet({
   onRequest,
   busyId,
   wide,
+  expanded,
 }: {
   jobs: ServiceRequest[];
   technicianName: (id: string) => string;
@@ -300,6 +301,8 @@ function JobSheet({
   onRequest: (request: ServiceRequest) => void;
   busyId: string | null;
   wide: boolean;
+  /** Full screen: nothing is cut short, however long the job's name is. */
+  expanded?: boolean;
 }) {
   const cell = 'px-3 py-2.5 border-r border-gray-100';
   const head = (label: string, style: object) => (
@@ -326,10 +329,10 @@ function JobSheet({
           return (
             <View key={r.id} className="rounded-2xl border border-gray-200 bg-white p-3.5">
               <Pressable onPress={() => router.push(`/(reseller)/request/${r.id}` as any)}>
-                <Text className="text-[14px] font-bold text-gray-900" numberOfLines={1}>
+                <Text className="text-[14px] font-bold text-gray-900" numberOfLines={expanded ? undefined : 1}>
                   {r.issue_type}
                 </Text>
-                <Text className="mt-0.5 text-[12px] text-gray-600" numberOfLines={1}>
+                <Text className="mt-0.5 text-[12px] text-gray-600" numberOfLines={expanded ? undefined : 1}>
                   {r.customer_name ?? 'Customer'}
                   {r.customer_phone ? ` · ${r.customer_phone}` : ''}
                 </Text>
@@ -401,15 +404,15 @@ function JobSheet({
               className={cell}
               style={{ flex: 1 }}
             >
-              <Text className="text-[13.5px] font-semibold text-gray-900" numberOfLines={1}>
+              <Text className="text-[13.5px] font-semibold text-gray-900" numberOfLines={expanded ? undefined : 1}>
                 {r.issue_type}
               </Text>
-              <Text className="mt-0.5 text-[11.5px] text-gray-500" numberOfLines={1}>
+              <Text className="mt-0.5 text-[11.5px] text-gray-500" numberOfLines={expanded ? undefined : 1}>
                 {when(r)} · {money(r.quoted_price)}
               </Text>
             </Pressable>
             <View className={cell} style={{ width: 220 }}>
-              <Text className="text-[13px] text-gray-900" numberOfLines={1}>
+              <Text className="text-[13px] text-gray-900" numberOfLines={expanded ? undefined : 1}>
                 {r.customer_name ?? 'Customer'}
               </Text>
               {!!r.customer_phone && (
@@ -421,7 +424,11 @@ function JobSheet({
                 </Pressable>
               )}
             </View>
-            <Text className={`${cell} text-[12.5px] text-gray-700`} style={{ width: 150 }} numberOfLines={1}>
+            <Text
+              className={`${cell} text-[12.5px] text-gray-700`}
+              style={{ width: 150 }}
+              numberOfLines={expanded ? undefined : 1}
+            >
               {r.technician_id ? technicianName(r.technician_id) : r.open_to_team ? 'Open to team' : 'Nobody yet'}
             </Text>
             <View className={cell} style={{ width: 170, gap: 4 }}>
@@ -473,6 +480,7 @@ export default function WorkHub() {
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null);
   const [assigning, setAssigning] = useState<{ request: ServiceRequest; mode: 'staff' | 'freelance' } | null>(null);
   const [sending, setSending] = useState(false);
+  const [maximised, setMaximised] = useState(false);
   // The sheet answers "what is on today"; the board answers "who is
   // carrying it". Opening on the lighter of the two.
   const [view, setView] = useState<'sheet' | 'board'>('sheet');
@@ -759,6 +767,17 @@ export default function WorkHub() {
           {overdueCount > 0 ? ` · ${overdueCount} overdue` : ''}
         </Text>
       </View>
+      {view === 'sheet' && (
+        <Pressable
+          onPress={() => setMaximised(true)}
+          className="h-9 flex-row items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3"
+          accessibilityLabel="Full screen"
+        >
+          <Ionicons name="expand-outline" size={15} color="#374151" />
+          <Text className="text-[12.5px] font-semibold text-gray-700">Full screen</Text>
+        </Pressable>
+      )}
+
       <Pressable
         onPress={() => router.push('/(reseller)/new-request?from=workhub' as any)}
         className="h-9 flex-row items-center gap-1.5 rounded-lg px-3"
@@ -834,6 +853,39 @@ export default function WorkHub() {
         Only work still to finish is listed - anything done or cancelled drops off. PDF and Excel above save the last
         30 days in full, finished jobs included ({monthRows.length} job{monthRows.length === 1 ? '' : 's'}).
       </Text>
+
+      {/* Full screen: the same list with nothing clipped, for long job
+          names that the column can only show the start of. */}
+      <Modal visible={maximised} animationType="slide" onRequestClose={() => setMaximised(false)}>
+        <View className="flex-1 bg-gray-50">
+          <View className="flex-row items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
+            <View className="flex-1">
+              <Text className="text-[16px] font-bold text-gray-900">
+                {live.length} job{live.length === 1 ? '' : 's'} in play
+              </Text>
+              <Text className="mt-0.5 text-[11.5px] text-gray-500">Full names, nothing cut short</Text>
+            </View>
+            <Pressable
+              onPress={() => setMaximised(false)}
+              className="h-9 flex-row items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3"
+            >
+              <Ionicons name="contract-outline" size={15} color="#374151" />
+              <Text className="text-[12.5px] font-semibold text-gray-700">Close</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: wide ? 24 : 12, paddingBottom: 40, gap: 12 }}>
+            <JobSheet
+              jobs={live}
+              technicianName={technicianName}
+              onAssign={(r) => setAssigning({ request: r, mode: 'staff' })}
+              onRequest={(r) => setAssigning({ request: r, mode: 'freelance' })}
+              busyId={busyId}
+              wide={wide}
+              expanded
+            />
+          </ScrollView>
+        </View>
+      </Modal>
 
       <AssignSheet
         request={assigning?.request ?? null}
