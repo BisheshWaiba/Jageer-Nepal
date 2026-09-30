@@ -88,9 +88,11 @@ const STAGE_ORDER: Stage[] = [
   'paid',
   'cancelled',
 ];
-// The stages where there's still something to do - the numbered pipeline on
-// web. Paid/Cancelled sit off to the side, since nothing is left to do.
-const WORKING_STAGES: Stage[] = ['requests', 'waiting_customer', 'my_jobs', 'in_progress', 'completed', 'awaiting_payment'];
+// The numbered pipeline is the job itself, finishing at Completed. What
+// happens to the money after that - part paid, settled - sits in the row
+// of chips underneath, where Cancelled already lived.
+const WORKING_STAGES: Stage[] = ['requests', 'waiting_customer', 'my_jobs', 'in_progress', 'completed'];
+const SIDE_STAGES: Stage[] = ['awaiting_payment', 'paid', 'cancelled'];
 
 const STAGE_META: Record<
   Stage,
@@ -100,9 +102,9 @@ const STAGE_META: Record<
   waiting_customer: { label: 'Waiting on customer', todo: 'Quote & wait for approval', icon: 'time-outline', color: '#D97706', tint: '#FFFBEB' },
   my_jobs: { label: 'My Jobs', todo: 'Assign a technician', icon: 'briefcase', color: '#2563EB', tint: '#EFF6FF' },
   in_progress: { label: 'Job in progress', todo: 'Technician is working', icon: 'build', color: '#2563EB', tint: '#EFF6FF' },
-  completed: { label: 'Completed', todo: 'Work done - collect payment', icon: 'checkmark-circle', color: '#7C3AED', tint: '#F5F3FF' },
+  completed: { label: 'Completed', todo: 'Work done - collect payment', icon: 'checkmark-circle', color: '#16A34A', tint: '#F0FDF4' },
   awaiting_payment: { label: 'Awaiting payment', todo: 'Part paid - collect the rest', icon: 'cash-outline', color: '#DC2626', tint: '#FEF2F2' },
-  paid: { label: 'Paid', todo: 'Paid & delivered', icon: 'checkmark-done-circle', color: '#16A34A', tint: '#F0FDF4' },
+  paid: { label: 'Paid', todo: 'Paid & delivered', icon: 'checkmark-done-circle', color: '#047857', tint: '#ECFDF5' },
   cancelled: { label: 'Cancelled', todo: 'Nothing left to do', icon: 'close-circle', color: '#9CA3AF', tint: '#F3F4F6' },
 };
 
@@ -721,8 +723,7 @@ export default function ResellerRequestQueue() {
 
         <View className="flex-row items-center justify-between">
           <View className="flex-row" style={{ gap: 8 }}>
-            {sidePill('paid')}
-            {sidePill('cancelled')}
+            {SIDE_STAGES.map(sidePill)}
           </View>
           <Pressable
             onPress={() => router.push('/(reseller)/new-request?from=requests')}
