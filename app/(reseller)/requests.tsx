@@ -33,51 +33,6 @@ type Stage =
   | 'paid'
   | 'cancelled';
 
-// Two quite different piles of work used to share one list: jobs customers
-// asked you for, and jobs you raised yourself for your own customers. They
-// need different first moves (answer one, staff the other), so they get a
-// side each.
-type Source = 'customers' | 'mine';
-
-const SOURCE_META: Record<Source, { label: string; icon: keyof typeof Ionicons.glyphMap; blurb: string }> = {
-  customers: { label: 'From customers', icon: 'download-outline', blurb: 'Service customers asked you for' },
-  mine: { label: 'My requests', icon: 'megaphone-outline', blurb: 'Work you raised yourself' },
-};
-
-function SourceTabs({ value, onChange, counts }: { value: Source; onChange: (v: Source) => void; counts: Record<Source, number> }) {
-  return (
-    <View className="flex-row rounded-2xl bg-gray-200 p-1" style={{ gap: 4 }}>
-      {(Object.keys(SOURCE_META) as Source[]).map((key) => {
-        const meta = SOURCE_META[key];
-        const active = value === key;
-        return (
-          <Pressable
-            key={key}
-            onPress={() => onChange(key)}
-            className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-3"
-            style={{ height: 42, backgroundColor: active ? '#FFFFFF' : 'transparent' }}
-          >
-            <Ionicons name={meta.icon} size={16} color={active ? '#1D4ED8' : '#6B7280'} />
-            <Text className={`text-[13.5px] ${active ? 'font-bold text-blue-700' : 'font-semibold text-gray-500'}`} numberOfLines={1}>
-              {meta.label}
-            </Text>
-            <View
-              className="h-5 min-w-5 items-center justify-center rounded-full px-1.5"
-              style={{ backgroundColor: active ? '#1D4ED8' : '#9CA3AF' }}
-            >
-              <Text className="text-[11px] font-extrabold text-white">{counts[key]}</Text>
-            </View>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-// The order the work actually happens in: the job finishes first, and only
-// then is there money to chase. A job sits in Completed until something is
-// received, moves to Awaiting payment once it is part paid, and leaves the
-// pipeline altogether when it is paid in full.
 const STAGE_ORDER: Stage[] = [
   'requests',
   'waiting_customer',
@@ -511,12 +466,7 @@ export default function ResellerRequestQueue() {
   // viewport is wide enough - same breakpoint as the sidebar shell.
   const { width: screenWidth } = useWindowDimensions();
   const isWideWeb = Platform.OS === 'web' && screenWidth >= WEB_SIDEBAR_MIN_WIDTH;
-  const [source, setSource] = useState<Source>('customers');
 
-  // Switching side starts again at whichever stage needs attention there.
-  useEffect(() => {
-    setJobStage(null);
-  }, [source]);
 
   const { data: incomingRaw, isLoading: loadingIncoming } = useSupabaseQuery('service_requests', {
     filters: { status: 'pending', origin: 'app' },
@@ -578,42 +528,19 @@ export default function ResellerRequestQueue() {
 
   const isLoading = loadingIncoming || loadingMine;
 
-  // A job the customer raised keeps origin 'app'; one the reseller raised
-  // for a customer of their own is 'reseller'. Product orders are always
-  // something a customer placed.
-  const byStageFor = useMemo(() => {
-    const build = (which: Source) => {
-      const groups = new Map<Stage, JobItem[]>();
-      STAGE_ORDER.forEach((stage) => groups.set(stage, []));
-      if (which === 'customers') {
-        incoming.forEach((item) => groups.get('requests')!.push({ kind: 'request', id: item.id, request: item }));
-        (mine ?? [])
-          .filter((item) => item.origin !== 'reseller')
-          .forEach((item) => groups.get(stageOf(item))!.push({ kind: 'request', id: item.id, request: item }));
-        (sellingOrders ?? []).forEach((order) =>
-          groups.get(orderStageOf(order))!.push({ kind: 'order', id: order.id, order })
-        );
-      } else {
-        (mine ?? [])
-          .filter((item) => item.origin === 'reseller')
-          .forEach((item) => groups.get(stageOf(item))!.push({ kind: 'request', id: item.id, request: item }));
-      }
-      return groups;
-    };
-    return { customers: build('customers'), mine: build('mine') };
+  // Every job in one pipeline, whoever raised it: unclaimed requests from
+  // customers, this reseller's own jobs, and the product orders that
+  // follow the same stages.
+  const myByStage = useMemo(() => {
+    const groups = new Map<Stage, JobItem[]>();
+    STAGE_ORDER.forEach((stage) => groups.set(stage, []));
+    incoming.forEach((item) => groups.get('requests')!.push({ kind: 'request', id: item.id, request: item }));
+    (mine ?? []).forEach((item) => groups.get(stageOf(item))!.push({ kind: 'request', id: item.id, request: item }));
+    (sellingOrders ?? []).forEach((order) =>
+      groups.get(orderStageOf(order))!.push({ kind: 'order', id: order.id, order })
+    );
+    return groups;
   }, [incoming, mine, sellingOrders]);
-
-  const myByStage = byStageFor[source];
-  const sourceCounts: Record<Source, number> = {
-    customers: STAGE_ORDER.filter((s) => s !== 'paid' && s !== 'cancelled').reduce(
-      (sum, stage) => sum + (byStageFor.customers.get(stage)?.length ?? 0),
-      0
-    ),
-    mine: STAGE_ORDER.filter((s) => s !== 'paid' && s !== 'cancelled').reduce(
-      (sum, stage) => sum + (byStageFor.mine.get(stage)?.length ?? 0),
-      0
-    ),
-  };
 
   const countOf = (stage: Stage) => myByStage.get(stage)?.length ?? 0;
   const activeStage = jobStage ?? STAGE_ORDER.find((stage) => countOf(stage) > 0) ?? 'requests';
@@ -662,32 +589,6 @@ export default function ResellerRequestQueue() {
 
     return (
       <ScrollView className="flex-1 bg-gray-50" contentContainerStyle={{ padding: 32, paddingTop: 20, gap: 16 }}>
-        <View className="flex-row items-center" style={{ gap: 16 }}>
-          <View style={{ flex: 1, maxWidth: 460 }}>
-            <SourceTabs value={source} onChange={setSource} counts={sourceCounts} />
-          </View>
-          <Text className="flex-1 text-[12.5px] text-gray-500">{SOURCE_META[source].blurb}</Text>
-        </View>
-
-        {source === 'mine' && (
-          <Pressable
-            onPress={() => router.push('/(reseller)/new-request?from=requests')}
-            className="flex-row items-center gap-3 rounded-2xl p-4"
-            style={{ backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE' }}
-          >
-            <View className="h-11 w-11 items-center justify-center rounded-full" style={{ backgroundColor: '#2563EB' }}>
-              <Ionicons name="add" size={22} color="#FFFFFF" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-[15px] font-bold text-gray-900">Request a technician</Text>
-              <Text className="mt-0.5 text-xs text-gray-600">
-                Raise a job for one of your own customers, then assign it or open it to your team.
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#2563EB" />
-          </Pressable>
-        )}
-
         <View className="flex-row items-stretch" style={{ gap: 6 }}>
           {WORKING_STAGES.map((stage, index) => {
             const meta = STAGE_META[stage];
@@ -769,27 +670,6 @@ export default function ResellerRequestQueue() {
 
   return (
     <View className="flex-1 bg-gray-50 pt-3.5">
-      <View className="mb-3 px-4">
-        <SourceTabs value={source} onChange={setSource} counts={sourceCounts} />
-      </View>
-
-      {source === 'mine' && (
-        <Pressable
-          onPress={() => router.push('/(reseller)/new-request?from=requests')}
-          className="mx-4 mb-3 flex-row items-center gap-3 rounded-2xl p-3.5"
-          style={{ backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE' }}
-        >
-          <View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: '#2563EB' }}>
-            <Ionicons name="add" size={20} color="#FFFFFF" />
-          </View>
-          <View className="flex-1">
-            <Text className="text-[14.5px] font-bold text-gray-900">Request a technician</Text>
-            <Text className="mt-0.5 text-[11.5px] text-gray-600">Raise a job for your own customer</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#2563EB" />
-        </Pressable>
-      )}
-
       <ScrollView
         ref={chipScrollRef}
         horizontal
