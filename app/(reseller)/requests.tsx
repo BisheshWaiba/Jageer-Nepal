@@ -23,7 +23,15 @@ import type { Order, Product, ServiceRequest } from '../../types/database.types'
 // customer and send a quote), and the latter is its own "My Jobs" stage,
 // right before "Job in progress" since picking a technician is the last
 // thing standing between an approved job and it actually starting.
-type Stage = 'requests' | 'waiting_customer' | 'my_jobs' | 'in_progress' | 'awaiting_payment' | 'completed' | 'cancelled';
+type Stage =
+  | 'requests'
+  | 'waiting_customer'
+  | 'my_jobs'
+  | 'in_progress'
+  | 'completed'
+  | 'awaiting_payment'
+  | 'paid'
+  | 'cancelled';
 
 // Two quite different piles of work used to share one list: jobs customers
 // asked you for, and jobs you raised yourself for your own customers. They
@@ -66,10 +74,23 @@ function SourceTabs({ value, onChange, counts }: { value: Source; onChange: (v: 
   );
 }
 
-const STAGE_ORDER: Stage[] = ['requests', 'waiting_customer', 'my_jobs', 'in_progress', 'awaiting_payment', 'completed', 'cancelled'];
-// The stages where there's still work to do - shown as the numbered pipeline
-// on web. Completed/Cancelled sit off to the side since nothing is left to do.
-const WORKING_STAGES: Stage[] = ['requests', 'waiting_customer', 'my_jobs', 'in_progress', 'awaiting_payment'];
+// The order the work actually happens in: the job finishes first, and only
+// then is there money to chase. A job sits in Completed until something is
+// received, moves to Awaiting payment once it is part paid, and leaves the
+// pipeline altogether when it is paid in full.
+const STAGE_ORDER: Stage[] = [
+  'requests',
+  'waiting_customer',
+  'my_jobs',
+  'in_progress',
+  'completed',
+  'awaiting_payment',
+  'paid',
+  'cancelled',
+];
+// The stages where there's still something to do - the numbered pipeline on
+// web. Paid/Cancelled sit off to the side, since nothing is left to do.
+const WORKING_STAGES: Stage[] = ['requests', 'waiting_customer', 'my_jobs', 'in_progress', 'completed', 'awaiting_payment'];
 
 const STAGE_META: Record<
   Stage,
@@ -79,8 +100,9 @@ const STAGE_META: Record<
   waiting_customer: { label: 'Waiting on customer', todo: 'Quote & wait for approval', icon: 'time-outline', color: '#D97706', tint: '#FFFBEB' },
   my_jobs: { label: 'My Jobs', todo: 'Assign a technician', icon: 'briefcase', color: '#2563EB', tint: '#EFF6FF' },
   in_progress: { label: 'Job in progress', todo: 'Technician is working', icon: 'build', color: '#2563EB', tint: '#EFF6FF' },
-  awaiting_payment: { label: 'Awaiting payment', todo: 'Collect payment', icon: 'cash-outline', color: '#DC2626', tint: '#FEF2F2' },
-  completed: { label: 'Completed', todo: 'Paid & delivered', icon: 'checkmark-done-circle', color: '#16A34A', tint: '#F0FDF4' },
+  completed: { label: 'Completed', todo: 'Work done - collect payment', icon: 'checkmark-circle', color: '#7C3AED', tint: '#F5F3FF' },
+  awaiting_payment: { label: 'Awaiting payment', todo: 'Part paid - collect the rest', icon: 'cash-outline', color: '#DC2626', tint: '#FEF2F2' },
+  paid: { label: 'Paid', todo: 'Paid & delivered', icon: 'checkmark-done-circle', color: '#16A34A', tint: '#F0FDF4' },
   cancelled: { label: 'Cancelled', todo: 'Nothing left to do', icon: 'close-circle', color: '#9CA3AF', tint: '#F3F4F6' },
 };
 
@@ -101,7 +123,10 @@ function stageOf(item: ServiceRequest): Stage {
     case 'in_progress':
       return 'in_progress';
     case 'resolved':
-      return item.payment_status === 'paid' ? 'completed' : 'awaiting_payment';
+      // Finished and settled leaves the pipeline; part paid is the one
+      // still worth chasing; anything else is simply done but unpaid.
+      if (item.payment_status === 'paid') return 'paid';
+      return item.payment_status === 'partial' ? 'awaiting_payment' : 'completed';
   }
 }
 
@@ -117,7 +142,7 @@ function orderStageOf(order: Order): Stage {
     case 'shipped':
       return 'in_progress';
     case 'delivered':
-      return 'completed';
+      return 'paid';
     case 'cancelled':
       return 'cancelled';
     default:
@@ -343,7 +368,7 @@ function RequestJobRow({ item, stage, wide }: { item: ServiceRequest; stage: Sta
     action = { label: 'Review hold request', icon: 'pause-circle-outline', primary: true, onPress: open };
   } else if (stage === 'in_progress') {
     action = { label: 'View job', icon: 'eye-outline', primary: false, onPress: open };
-  } else if (stage === 'awaiting_payment') {
+  } else if (stage === 'completed' || stage === 'awaiting_payment') {
     action = { label: 'Record payment', icon: 'cash-outline', primary: true, onPress: open };
   } else {
     action = { label: 'View', icon: 'eye-outline', primary: false, onPress: open };
@@ -354,9 +379,9 @@ function RequestJobRow({ item, stage, wide }: { item: ServiceRequest; stage: Sta
       ? TAGS.holdRequested
       : stage === 'in_progress' && item.hold_status === 'on_hold'
         ? TAGS.onHold
-        : stage === 'awaiting_payment'
+        : stage === 'awaiting_payment' || stage === 'completed'
           ? TAGS.unpaid
-          : stage === 'completed'
+          : stage === 'paid'
             ? TAGS.paid
             : item.origin === 'app'
               ? TAGS.app
@@ -578,11 +603,11 @@ export default function ResellerRequestQueue() {
 
   const myByStage = byStageFor[source];
   const sourceCounts: Record<Source, number> = {
-    customers: STAGE_ORDER.filter((s) => s !== 'completed' && s !== 'cancelled').reduce(
+    customers: STAGE_ORDER.filter((s) => s !== 'paid' && s !== 'cancelled').reduce(
       (sum, stage) => sum + (byStageFor.customers.get(stage)?.length ?? 0),
       0
     ),
-    mine: STAGE_ORDER.filter((s) => s !== 'completed' && s !== 'cancelled').reduce(
+    mine: STAGE_ORDER.filter((s) => s !== 'paid' && s !== 'cancelled').reduce(
       (sum, stage) => sum + (byStageFor.mine.get(stage)?.length ?? 0),
       0
     ),
@@ -696,7 +721,7 @@ export default function ResellerRequestQueue() {
 
         <View className="flex-row items-center justify-between">
           <View className="flex-row" style={{ gap: 8 }}>
-            {sidePill('completed')}
+            {sidePill('paid')}
             {sidePill('cancelled')}
           </View>
           <Pressable
