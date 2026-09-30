@@ -20,8 +20,9 @@ Have these in hand:
       direct connection string is nicer.
 - [ ] One real user id in that project (`select id, email from auth.users
       limit 5;`). You need it for the smoke test.
-- [ ] A decision on **who owns a book**: `auth.users`, or your own
-      `profiles`/`users` table.
+- [ ] A decision on **who owns a book** — per user, or per company. See
+      1.2; it is the one choice that is painful to change later, because
+      changing it means migrating live rows.
 - [ ] A decision on **who is an admin**: a role column, a JWT claim, or
       nobody. "Nobody" is a fine answer — owners still see their own books.
 - [ ] The target repo checked out.
@@ -37,12 +38,42 @@ get run; the `.md` files are for whoever builds the screens.
 
 ### 1.2 Edit the adapter block
 
-Open `01_finance_schema.sql`. The **ADAPTER** block is the first ~40 lines
+Open `01_finance_schema.sql`. The **ADAPTER** block is the first ~70 lines
 and the only part you normally change.
 
-**If your owner is not `auth.users`:** find and replace
-`references auth.users(id)` with `references public.profiles(id)` (or
-whatever your table is). There are nine of them, one per table.
+**Pick an ownership model.** Every finance row carries `owner_id`, and
+this decides what that means. The column name, the formulas, the indexes
+and the screens are identical either way — only what `owner_id` points at
+changes.
+
+*Model A, per user* — each person gets private books. Right for a
+one-person business. Nothing to do; the file ships this way.
+
+*Model B, per company* — everyone at a company shares one set of books.
+**This is what an ERP normally wants.** Two changes:
+
+```bash
+# i. point the nine foreign keys at your tenant table
+sed -i 's|references auth.users(id)|references public.companies(id)|g' \
+  finance-port/01_finance_schema.sql
+```
+
+```sql
+-- ii. make finance_current_owner() return the caller's company.
+--     Use your project's own resolver if it has one:
+select my_company_id();
+--     ...or read it straight off your profiles table:
+select company_id from public.profiles where id = auth.uid();
+```
+
+Section 9 of the script then stamps `owner_id` on every insert from that
+function, so the client never sends it and cannot send someone else's.
+The RLS with-check still runs afterwards, so a client that *does* send a
+foreign `owner_id` is refused rather than quietly corrected.
+
+Getting this wrong in the obvious direction — leaving Model A on a
+multi-user ERP — is not loud. It looks like it works, and then two
+colleagues cannot see the same ledger.
 
 **Set the admin rule** in `finance_is_admin()`. Three common bodies:
 
@@ -83,6 +114,10 @@ select count(*) from pg_policies where schemaname = 'public'
    and tablename in ('customers','bank_accounts','account_transfers',
                      'expense_categories','finance_items','business_transactions',
                      'customer_ledger_entries','vendor_ledger_entries','statement_imports');
+
+-- expect 9 — the owner-stamping triggers from section 9
+select count(*) from pg_trigger
+ where not tgisinternal and tgname like '%_stamp_owner';
 
 -- expect 9 rows, all t — a false here means that table is wide open
 select relname, relrowsecurity from pg_class c
@@ -166,11 +201,21 @@ Whatever your framework, you need three things:
 This is worth doing properly once, now, rather than discovering it in
 production.
 
-1. Sign in as user A, insert a party, read it back — expect 1 row.
+Under Model B, "user B" means **a user at a different company** — two
+users at the same company are supposed to see the same books, and testing
+with two colleagues will make a broken policy look correct.
+
+1. Sign in as user A, insert a party **without sending `owner_id`**, read
+   it back — expect 1 row, with `owner_id` filled in by the stamp trigger.
 2. Sign in as user B, read `customers` — expect **0 rows**, not an error.
 3. As user B, try to update A's party by id — expect 0 rows affected.
-4. As user A, try to insert a ledger entry with `source: 'booking'` —
+4. As user B, try to insert a party *with A's `owner_id`* — expect a
+   policy violation, not a silently re-stamped row.
+5. As user A, try to insert a ledger entry with `source: 'booking'` —
    expect a policy violation. Only triggers may write booking rows.
+6. Model B only: as a second user at A's company, read `customers` —
+   expect to see A's parties. If you don't, `finance_current_owner()` is
+   still returning `auth.uid()`.
 
 If step 2 returns A's data, you are connecting with the service-role key
 somewhere. Fix that before going further; nothing else in this list

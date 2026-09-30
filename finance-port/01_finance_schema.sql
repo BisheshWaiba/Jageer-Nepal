@@ -17,12 +17,47 @@ begin;
 -- ADAPTER - wire the module into YOUR project
 -- ---------------------------------------------------------------------
 -- 1. WHO OWNS A BOOK.
---    Every finance row carries owner_id: the user whose books it is.
---    Below it points at auth.users, which exists in every Supabase
---    project. If you have your own profiles/users table, replace
---    `auth.users(id)` with `public.profiles(id)` in every FK below -
---    nothing else changes.
+--    Every finance row carries owner_id. Two models; pick one now,
+--    because changing it later means migrating live data.
 --
+--    MODEL A - PER USER (the default below).
+--      owner_id is a user. Each person gets private books nobody else
+--      can see. Right for a one-person business. Wrong the moment two
+--      people need the same ledger.
+--      Nothing to do: run the file as it is.
+--
+--    MODEL B - PER COMPANY / TENANT.
+--      owner_id is a company. Everyone at that company shares one set
+--      of books. This is what an ERP normally wants.
+--      Two changes before you run the file:
+--        i.  Point the foreign keys at your tenant table -
+--              sed -i 's|references auth.users(id)|references public.companies(id)|g' \
+--                01_finance_schema.sql
+--            (9 of them, one per table.)
+--        ii. Make finance_current_owner() return the caller's company -
+--            see the commented body below.
+--      Then read section 9 at the bottom: it stamps owner_id on insert,
+--      the way a multi-tenant schema usually already does elsewhere.
+--
+--    Whichever you pick, the column stays named owner_id and every
+--    formula, index and screen in this kit is unchanged. That is the
+--    point of routing it all through one function:
+create or replace function public.finance_current_owner()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  -- MODEL A - the caller is the owner:
+  select auth.uid();
+
+  -- MODEL B - the caller's company is the owner. Use your project's own
+  -- resolver if it has one (AttendX, for instance, already has
+  -- my_company_id()); otherwise read it off your profiles table:
+  --   select company_id from public.profiles where id = auth.uid();
+$$;
+
 -- 2. WHO IS AN ADMIN.
 --    Every table has a second policy letting an admin read and write
 --    anyone's books (support, back-office). Point this function at
@@ -427,7 +462,7 @@ begin
   loop
     execute format('drop policy if exists %I on public.%I', t || '_all_owner', t);
     execute format(
-      'create policy %I on public.%I for all using (owner_id = auth.uid()) with check (owner_id = auth.uid())',
+      'create policy %I on public.%I for all using (owner_id = public.finance_current_owner()) with check (owner_id = public.finance_current_owner())',
       t || '_all_owner', t);
     execute format('drop policy if exists %I on public.%I', t || '_admin_all', t);
     execute format(
@@ -449,29 +484,77 @@ begin
   foreach t in array array['customer_ledger_entries', 'vendor_ledger_entries']
   loop
     execute format('drop policy if exists %I on public.%I', t || '_select', t);
-    execute format('create policy %I on public.%I for select using (owner_id = auth.uid())',
+    execute format('create policy %I on public.%I for select using (owner_id = public.finance_current_owner())',
                    t || '_select', t);
 
     execute format('drop policy if exists %I on public.%I', t || '_insert_manual', t);
     execute format($f$create policy %I on public.%I for insert
-                      with check (owner_id = auth.uid() and source = 'manual')$f$,
+                      with check (owner_id = public.finance_current_owner() and source = 'manual')$f$,
                    t || '_insert_manual', t);
 
     execute format('drop policy if exists %I on public.%I', t || '_update_manual', t);
     execute format($f$create policy %I on public.%I for update
-                      using (owner_id = auth.uid() and source = 'manual')
-                      with check (owner_id = auth.uid() and source = 'manual')$f$,
+                      using (owner_id = public.finance_current_owner() and source = 'manual')
+                      with check (owner_id = public.finance_current_owner() and source = 'manual')$f$,
                    t || '_update_manual', t);
 
     execute format('drop policy if exists %I on public.%I', t || '_delete_manual', t);
     execute format($f$create policy %I on public.%I for delete
-                      using (owner_id = auth.uid() and source = 'manual')$f$,
+                      using (owner_id = public.finance_current_owner() and source = 'manual')$f$,
                    t || '_delete_manual', t);
 
     execute format('drop policy if exists %I on public.%I', t || '_admin_all', t);
     execute format(
       'create policy %I on public.%I for all using (public.finance_is_admin()) with check (public.finance_is_admin())',
       t || '_admin_all', t);
+  end loop;
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 9. STAMPING owner_id ON INSERT  (needed for MODEL B, optional for A)
+-- ---------------------------------------------------------------------
+-- Under MODEL B the client has no business knowing its own company id,
+-- and should certainly not be trusted to send it. This fills owner_id in
+-- server-side from finance_current_owner() whenever the insert leaves it
+-- null, and rejects the insert outright if it cannot be determined -
+-- the same shape as the stamp triggers a multi-tenant schema usually
+-- already has on its other tables.
+--
+-- The RLS with-check still runs afterwards, so a client that DOES send
+-- someone else's owner_id is refused rather than silently corrected.
+-- Belt and braces, deliberately.
+create or replace function public.finance_stamp_owner()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.owner_id is null then
+    new.owner_id := public.finance_current_owner();
+  end if;
+  if new.owner_id is null then
+    raise exception 'owner_id could not be determined for this insert';
+  end if;
+  return new;
+end;
+$$;
+
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'customers', 'bank_accounts', 'account_transfers', 'expense_categories',
+    'finance_items', 'business_transactions', 'statement_imports',
+    'customer_ledger_entries', 'vendor_ledger_entries'
+  ]
+  loop
+    execute format('drop trigger if exists %I on public.%I', t || '_stamp_owner', t);
+    execute format(
+      'create trigger %I before insert on public.%I for each row execute function public.finance_stamp_owner()',
+      t || '_stamp_owner', t);
   end loop;
 end
 $$;

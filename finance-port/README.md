@@ -13,6 +13,7 @@ valuable part and they port verbatim; only the screens have to be rebuilt.
 
 | File | What it is |
 |---|---|
+| `00_STEP_BY_STEP.md` | The runbook: what to do in what order, with a check at the end of every step. Start here. |
 | `01_finance_schema.sql` | The whole database half, self-contained. 9 tables, their indexes, RLS policies and the posting triggers, consolidated from ~28 migrations and dumped from the live database, so it matches what is actually running rather than what the migration files say. |
 | `02_posting_from_your_documents.sql` | Optional. How to make your own documents (a job, a work order, an order) post themselves into the books, with the four rules that stop money being double-counted. |
 | `FINANCE-SPEC.md` | The other half: every balance formula, and what each of the eleven screens does. Written to be rebuilt from, on any frontend. |
@@ -22,10 +23,11 @@ valuable part and they port verbatim; only the screens have to be rebuilt.
 1. Create the Supabase project (or pick the schema) that will hold the
    second set of books.
 2. Open `01_finance_schema.sql`, read the **ADAPTER** block at the top, and
-   set two things: what `owner_id` points at (`auth.users` by default,
-   swap in your own `profiles` table if you have one) and how
+   set two things: the **ownership model** — per user (the default) or per
+   company, which is what a multi-tenant ERP wants — and how
    `finance_is_admin()` decides who is an admin. Returning `false` is a
-   fine answer.
+   fine answer. `00_STEP_BY_STEP.md` §1.2 has the exact commands for
+   either model.
 3. Run the file. It is one transaction — it either installs completely or
    not at all — and it is re-runnable.
 4. Run the smoke test commented at the bottom: it inserts a party and a
@@ -46,6 +48,11 @@ valuable part and they port verbatim; only the screens have to be rebuilt.
 - **Trigger-written entries are read-only** at the RLS level, not just in
   the UI, so nobody can "fix" a job's payment in the ledger and have the
   next trigger run silently overwrite it.
+- **One switch decides who owns a book.** Per-user or per-company, chosen
+  by a single function; the column name, the formulas, the indexes and the
+  screens are the same either way. Under the company model `owner_id` is
+  stamped server-side on insert, so a client never sends it and cannot
+  send someone else's.
 - **Statement import can't double-count**, because every imported line is
   remembered by the bank's own reference code.
 

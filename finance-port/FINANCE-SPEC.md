@@ -38,6 +38,10 @@ const isSettledOnTheSpot = (t) =>
 
 Two more things worth knowing before you read any further:
 
+- **Never send `owner_id` from the frontend.** It may be a user id or a
+  company id depending on how the schema was installed, and the database
+  stamps it on insert either way. Code that sends `auth.uid()` works on a
+  per-user install and silently breaks on a per-company one.
 - `customers` holds **both** customers and vendors. Which side someone is
   on is decided per entry, by which ledger it lands in. One person can owe
   you and be owed by you at once, and the UI shows both numbers rather
