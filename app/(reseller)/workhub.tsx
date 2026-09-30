@@ -22,7 +22,38 @@ const BLUE = '#2563EB';
  * on a board about who is doing what today. */
 const LIVE_STATUSES: ServiceRequest['status'][] = ['pending', 'approved', 'assigned', 'in_progress'];
 
+/** The same buckets the Requests tab uses, so a job is in the state here
+ * that it is in there - and "All" is every job either page knows about. */
+type Filter = 'active' | 'completed' | 'paid' | 'cancelled' | 'all';
+
+const FILTERS: { key: Filter; label: string; color: string }[] = [
+  { key: 'active', label: 'Still to do', color: '#2563EB' },
+  { key: 'completed', label: 'Completed', color: '#16A34A' },
+  { key: 'paid', label: 'Paid', color: '#047857' },
+  { key: 'cancelled', label: 'Cancelled', color: '#6B7280' },
+  { key: 'all', label: 'All', color: '#374151' },
+];
+
+function matchesFilter(request: ServiceRequest, filter: Filter): boolean {
+  switch (filter) {
+    case 'active':
+      return LIVE_STATUSES.includes(request.status);
+    case 'completed':
+      return request.status === 'resolved' && request.payment_status !== 'paid';
+    case 'paid':
+      return request.status === 'resolved' && request.payment_status === 'paid';
+    case 'cancelled':
+      return request.status === 'cancelled';
+    case 'all':
+      return true;
+  }
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Still open, so it can still be handed to someone. A finished or
+ * cancelled job only gets a View. */
+const isOpenJob = (request: ServiceRequest) => LIVE_STATUSES.includes(request.status);
 
 /** Plain words for the saved record - "in_progress" is the database's
  * word, not one a reader wants in a spreadsheet. */
@@ -64,6 +95,12 @@ function when(request: ServiceRequest): string {
 
 /** Where the job stands, in the words the reseller would use. */
 function statusChip(request: ServiceRequest): { label: string; color: string; bg: string } {
+  if (request.status === 'cancelled') return { label: 'Cancelled', color: '#6B7280', bg: '#F3F4F6' };
+  if (request.status === 'resolved') {
+    return request.payment_status === 'paid'
+      ? { label: 'Done & paid', color: '#047857', bg: '#ECFDF5' }
+      : { label: 'Completed', color: '#16A34A', bg: '#F0FDF4' };
+  }
   if (request.status === 'in_progress') return { label: 'Working on it', color: '#1D4ED8', bg: '#EFF6FF' };
   if (request.status === 'assigned') return { label: 'Waiting for them to accept', color: '#B45309', bg: '#FFFBEB' };
   if (request.open_to_team) return { label: 'Waiting to be picked up', color: '#047857', bg: '#ECFDF5' };
@@ -439,24 +476,36 @@ function JobSheet({
               <Chip {...pay} />
             </View>
             <View className="flex-row px-3 py-2" style={{ width: 210, gap: 8 }}>
-              <Pressable
-                onPress={() => onAssign(r)}
-                className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg"
-                style={{ backgroundColor: BLUE }}
-              >
-                <Ionicons name="person-add-outline" size={15} color="#FFFFFF" />
-                <Text className="text-[12.5px] font-semibold text-white">{r.technician_id ? 'Reassign' : 'Assign'}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => onRequest(r)}
-                className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border bg-white"
-                style={{ borderColor: '#DDD6FE' }}
-              >
-                <Ionicons name="paper-plane-outline" size={15} color="#6D28D9" />
-                <Text className="text-[12.5px] font-semibold" style={{ color: '#6D28D9' }}>
-                  Request
-                </Text>
-              </Pressable>
+              {isOpenJob(r) ? (
+                <>
+                  <Pressable
+                    onPress={() => onAssign(r)}
+                    className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg"
+                    style={{ backgroundColor: BLUE }}
+                  >
+                    <Ionicons name="person-add-outline" size={15} color="#FFFFFF" />
+                    <Text className="text-[12.5px] font-semibold text-white">{r.technician_id ? 'Reassign' : 'Assign'}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => onRequest(r)}
+                    className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border bg-white"
+                    style={{ borderColor: '#DDD6FE' }}
+                  >
+                    <Ionicons name="paper-plane-outline" size={15} color="#6D28D9" />
+                    <Text className="text-[12.5px] font-semibold" style={{ color: '#6D28D9' }}>
+                      Request
+                    </Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  onPress={() => router.push(`/(reseller)/request/${r.id}` as any)}
+                  className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white"
+                >
+                  <Ionicons name="eye-outline" size={15} color="#374151" />
+                  <Text className="text-[12.5px] font-semibold text-gray-700">View</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         );
@@ -481,15 +530,26 @@ export default function WorkHub() {
   const [assigning, setAssigning] = useState<{ request: ServiceRequest; mode: 'staff' | 'freelance' } | null>(null);
   const [sending, setSending] = useState(false);
   const [maximised, setMaximised] = useState(false);
+  const [filter, setFilter] = useState<Filter>('active');
   // The sheet answers "what is on today"; the board answers "who is
   // carrying it". Opening on the lighter of the two.
   const [view, setView] = useState<'sheet' | 'board'>('sheet');
 
-  const { data: requests, isLoading } = useSupabaseQuery('service_requests', {
+  const { data: mine, isLoading } = useSupabaseQuery('service_requests', {
     filters: userId ? { reseller_id: userId } : {},
     orderBy: { column: 'created_at', ascending: false },
     enabled: !!userId,
   });
+  // The same unclaimed pool the Requests tab shows at its first stage -
+  // nobody owns these yet, so they carry no reseller_id.
+  const { data: incomingRaw } = useSupabaseQuery('service_requests', {
+    filters: { status: 'pending', origin: 'app' },
+    orderBy: { column: 'created_at', ascending: true },
+  });
+  const requests = useMemo(() => {
+    const unclaimed = (incomingRaw ?? []).filter((r) => !r.reseller_id);
+    return [...(mine ?? []), ...unclaimed];
+  }, [mine, incomingRaw]);
   const { data: employees } = useMyEmployees(userId);
   // Freelancers are ranked by the same rules the job page uses - nearest
   // and free first, and never someone else's employee while on duty.
@@ -498,20 +558,26 @@ export default function WorkHub() {
     userId
   );
 
-  // This page is the work still to finish: anything resolved or cancelled
-  // drops off it (the month's record below still has those), and whatever
-  // is past its day floats to the top.
-  const live = useMemo(() => {
-    const open = (requests ?? []).filter((r) => LIVE_STATUSES.includes(r.status));
-    return [...open].sort((a, b) => {
-      const overdue = Number(isOverdue(b)) - Number(isOverdue(a));
-      if (overdue !== 0) return overdue;
-      const unassigned = Number(!b.technician_id) - Number(!a.technician_id);
-      if (unassigned !== 0) return unassigned;
+  // Work still to do is what the page opens on; the other filters are
+  // there for when the question is "where did that job get to?".
+  const shown = useMemo(() => {
+    const picked = requests.filter((r) => matchesFilter(r, filter));
+    return [...picked].sort((a, b) => {
+      if (filter === 'active' || filter === 'all') {
+        const overdue = Number(isOverdue(b) && LIVE_STATUSES.includes(b.status)) - Number(isOverdue(a) && LIVE_STATUSES.includes(a.status));
+        if (overdue !== 0) return overdue;
+        const unassigned = Number(!b.technician_id) - Number(!a.technician_id);
+        if (unassigned !== 0) return unassigned;
+      }
       return dueAt(a) - dueAt(b);
     });
-  }, [requests]);
+  }, [requests, filter]);
+
+  // The board is always about who is carrying work right now, whichever
+  // filter the list is on.
+  const live = useMemo(() => requests.filter((r) => LIVE_STATUSES.includes(r.status)), [requests]);
   const overdueCount = useMemo(() => live.filter(isOverdue).length, [live]);
+  const countFor = (key: Filter) => requests.filter((r) => matchesFilter(r, key)).length;
 
   const byTechnician = useMemo(() => {
     const map = new Map<string, ServiceRequest[]>();
@@ -839,10 +905,41 @@ export default function WorkHub() {
     );
   }
 
+  const filterChips = (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+      {FILTERS.map((f) => {
+        const active = filter === f.key;
+        return (
+          <Pressable
+            key={f.key}
+            onPress={() => setFilter(f.key)}
+            className="h-9 flex-row items-center gap-1.5 rounded-full px-3.5"
+            style={{
+              backgroundColor: active ? f.color : '#FFFFFF',
+              borderWidth: active ? 0 : 1,
+              borderColor: '#E5E7EB',
+            }}
+          >
+            <Text className={`text-[12.5px] font-semibold ${active ? 'text-white' : 'text-gray-700'}`}>{f.label}</Text>
+            <View
+              className="h-5 min-w-5 items-center justify-center rounded-full px-1.5"
+              style={{ backgroundColor: active ? 'rgba(255,255,255,0.25)' : '#F3F4F6' }}
+            >
+              <Text className={`text-[11px] font-extrabold ${active ? 'text-white' : 'text-gray-600'}`}>
+                {countFor(f.key)}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+
   const sheet = (
     <>
+      {filterChips}
       <JobSheet
-        jobs={live}
+        jobs={shown}
         technicianName={technicianName}
         onAssign={(r) => setAssigning({ request: r, mode: 'staff' })}
         onRequest={(r) => setAssigning({ request: r, mode: 'freelance' })}
@@ -850,8 +947,8 @@ export default function WorkHub() {
         wide={wide}
       />
       <Text className="px-1 text-[11.5px] leading-[17px] text-gray-400">
-        Only work still to finish is listed - anything done or cancelled drops off. PDF and Excel above save the last
-        30 days in full, finished jobs included ({monthRows.length} job{monthRows.length === 1 ? '' : 's'}).
+        Every job from Requests is here - switch the row above to see completed, paid or cancelled ones. PDF and Excel
+        save the last 30 days in full ({monthRows.length} job{monthRows.length === 1 ? '' : 's'}).
       </Text>
 
       {/* Full screen: the same list with nothing clipped, for long job
@@ -861,7 +958,7 @@ export default function WorkHub() {
           <View className="flex-row items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
             <View className="flex-1">
               <Text className="text-[16px] font-bold text-gray-900">
-                {live.length} job{live.length === 1 ? '' : 's'} in play
+                {shown.length} job{shown.length === 1 ? '' : 's'}
               </Text>
               <Text className="mt-0.5 text-[11.5px] text-gray-500">Full names, nothing cut short</Text>
             </View>
@@ -874,8 +971,9 @@ export default function WorkHub() {
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={{ padding: wide ? 24 : 12, paddingBottom: 40, gap: 12 }}>
+            {filterChips}
             <JobSheet
-              jobs={live}
+              jobs={shown}
               technicianName={technicianName}
               onAssign={(r) => setAssigning({ request: r, mode: 'staff' })}
               onRequest={(r) => setAssigning({ request: r, mode: 'freelance' })}
