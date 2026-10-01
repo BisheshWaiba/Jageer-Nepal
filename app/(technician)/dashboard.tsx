@@ -242,7 +242,9 @@ function EmploymentStatusCard({ userId }: { userId: string }) {
   const { current, employer } = useMyEmployment(userId);
 
   const label =
-    current?.status === 'accepted'
+    current?.status === 'accepted' && current.leave_requested_at
+      ? `Leave requested · waiting on ${employer?.full_name ?? 'your employer'}`
+      : current?.status === 'accepted'
       ? `Employee of ${employer?.full_name ?? 'a reseller'}`
       : current?.status === 'pending'
         ? `Waiting on ${employer?.full_name ?? 'a reseller'}`

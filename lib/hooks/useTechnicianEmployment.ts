@@ -1,8 +1,8 @@
 // lib/hooks/useTechnicianEmployment.ts
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../supabase';
-import { useSupabaseQuery, useSupabaseInsert, useSupabaseUpdate } from './useSupabase';
+import { useSupabaseQuery, useSupabaseInsert, useSupabaseUpdate, subscribeToTable } from './useSupabase';
 import type { Profile, TechnicianEmployment } from '../../types/database.types';
 
 /** A technician's own employment request/status - at most one active
@@ -124,6 +124,71 @@ export function useEndEmployment() {
     ...update,
     end: (id: string) => update.mutateAsync({ id, values: { status: 'ended', ended_at: new Date().toISOString() } }),
   };
+}
+
+/** A technician asks to leave their employer. The employment stays live
+ * until the employer approves (the database refuses a direct end - see
+ * migration 0081); the employer is told by popup/notification. */
+export function useRequestToLeave() {
+  const update = useSupabaseUpdate('technician_employment');
+  return {
+    ...update,
+    request: (id: string, reason: string) =>
+      update.mutateAsync({
+        id,
+        // The server overwrites this with its own clock; sent only because
+        // the column has to change for the trigger to see a request.
+        values: { leave_requested_at: new Date().toISOString(), leave_reason: reason.trim() || null },
+      }),
+    withdraw: (id: string) => update.mutateAsync({ id, values: { leave_requested_at: null } }),
+  };
+}
+
+/** The employer's answer to a leave request: approve ends the employment,
+ * reject clears the request and tells the technician no. */
+export function useDecideLeaveRequest() {
+  const update = useSupabaseUpdate('technician_employment');
+  return {
+    ...update,
+    decide: (id: string, approve: boolean) =>
+      update.mutateAsync({
+        id,
+        values: approve
+          ? { status: 'ended', ended_at: new Date().toISOString() }
+          : { leave_requested_at: null },
+      }),
+  };
+}
+
+/** Accepted employees of this reseller who have asked to leave, oldest
+ * first. Refreshes live (realtime) with a slow poll as a safety net, so the
+ * employer's popup appears while they are using the app. */
+export function useLeaveRequests(resellerId: string | undefined) {
+  const queryClient = useQueryClient();
+  const { data: employees } = useMyEmployees(resellerId);
+
+  useEffect(() => {
+    if (!resellerId) return;
+    const unsubscribe = subscribeToTable(
+      'technician_employment',
+      () => queryClient.invalidateQueries({ queryKey: ['technician_employment'] }),
+      `reseller_id=eq.${resellerId}`,
+      'leave-requests'
+    );
+    const poll = setInterval(() => queryClient.invalidateQueries({ queryKey: ['technician_employment'] }), 20_000);
+    return () => {
+      unsubscribe();
+      clearInterval(poll);
+    };
+  }, [resellerId, queryClient]);
+
+  return useMemo(
+    () =>
+      employees
+        .filter((e) => !!e.employment.leave_requested_at)
+        .sort((a, b) => (a.employment.leave_requested_at! < b.employment.leave_requested_at! ? -1 : 1)),
+    [employees]
+  );
 }
 
 /** The employer's fields on an employment row - work hours, job title and

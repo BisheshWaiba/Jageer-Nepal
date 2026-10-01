@@ -1,6 +1,6 @@
 // app/(technician)/employment.tsx
 import { useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../lib/hooks/useAuth';
 import {
@@ -10,6 +10,7 @@ import {
   useFindResellerByPhone,
   useMyInvites,
   useRespondToHire,
+  useRequestToLeave,
 } from '../../lib/hooks/useTechnicianEmployment';
 import { TimeField } from '../../lib/components/DateTimeFields';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
@@ -164,11 +165,37 @@ export default function EmploymentScreen() {
   const userId = useAuthStore((state) => state.session?.user.id);
   const { current, employer } = useMyEmployment(userId);
   const endEmployment = useEndEmployment();
+  const leave = useRequestToLeave();
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveReason, setLeaveReason] = useState('');
 
-  async function handleCancelOrLeave() {
+  // Only for cancelling a request that is still pending. Once accepted,
+  // leaving needs the employer's approval (handleRequestLeave) - the
+  // database refuses a direct end.
+  async function handleCancelRequest() {
     if (!current) return;
     try {
       await endEmployment.end(current.id);
+    } catch (err) {
+      showAlert('Could not update', getErrorMessage(err));
+    }
+  }
+
+  async function handleRequestLeave() {
+    if (!current) return;
+    try {
+      await leave.request(current.id, leaveReason);
+      setLeaveOpen(false);
+      setLeaveReason('');
+    } catch (err) {
+      showAlert('Could not send request', getErrorMessage(err));
+    }
+  }
+
+  async function handleWithdrawLeave() {
+    if (!current) return;
+    try {
+      await leave.withdraw(current.id);
     } catch (err) {
       showAlert('Could not update', getErrorMessage(err));
     }
@@ -189,7 +216,7 @@ export default function EmploymentScreen() {
           <Text className="mt-1 text-center text-xs text-gray-500">
             You'll be notified once they respond to your request.
           </Text>
-          <Pressable onPress={handleCancelOrLeave} disabled={endEmployment.isPending} className="mt-4 px-3 py-1.5">
+          <Pressable onPress={handleCancelRequest} disabled={endEmployment.isPending} className="mt-4 px-3 py-1.5">
             <Text className="text-sm font-semibold text-gray-500">Cancel request</Text>
           </Pressable>
         </View>
@@ -222,15 +249,78 @@ export default function EmploymentScreen() {
             </Text>
           </View>
 
-          <Pressable
-            onPress={handleCancelOrLeave}
-            disabled={endEmployment.isPending}
-            className="items-center rounded-xl border border-red-200 bg-red-50 py-2.5 disabled:opacity-50"
-          >
-            <Text className="text-sm font-semibold text-red-600">{endEmployment.isPending ? 'Leaving…' : 'Leave employer'}</Text>
-          </Pressable>
+          {current.leave_requested_at ? (
+            <View className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+              <View className="mb-1 flex-row items-center gap-2">
+                <Ionicons name="time-outline" size={16} color="#D97706" />
+                <Text className="flex-1 text-sm font-semibold text-gray-900">
+                  Waiting for {employer?.full_name ?? 'your employer'} to approve
+                </Text>
+              </View>
+              <Text className="text-xs text-gray-600">
+                You stay on their team until they approve your request to leave. You'll be told as soon as they answer.
+              </Text>
+              <Pressable onPress={handleWithdrawLeave} disabled={leave.isPending} className="mt-3 self-start py-1">
+                <Text className="text-sm font-semibold text-gray-500">Withdraw request</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              {!!current.leave_rejected_at && (
+                <View className="mb-3 flex-row items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2.5">
+                  <Ionicons name="close-circle" size={15} color="#DC2626" />
+                  <Text className="flex-1 text-[12px] leading-[16px] text-red-800">
+                    {employer?.full_name ?? 'Your employer'} declined your request to leave. You can ask again.
+                  </Text>
+                </View>
+              )}
+              <Pressable
+                onPress={() => setLeaveOpen(true)}
+                className="items-center rounded-xl border border-red-200 bg-red-50 py-2.5"
+              >
+                <Text className="text-sm font-semibold text-red-600">Request to leave</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       )}
+
+      <Modal visible={leaveOpen} transparent animationType="fade" onRequestClose={() => setLeaveOpen(false)}>
+        <Pressable className="flex-1 items-center justify-center bg-black/40 px-6" onPress={() => setLeaveOpen(false)}>
+          <Pressable onPress={() => {}} className="w-full max-w-sm rounded-xl bg-white p-4">
+            <Text className="mb-1 text-base font-bold text-gray-900">Request to leave</Text>
+            <Text className="mb-3 text-xs text-gray-500">
+              This goes to {employer?.full_name ?? 'your employer'}. You stay on their team until they approve it, and
+              they can also reject it.
+            </Text>
+            <TextInput
+              value={leaveReason}
+              onChangeText={setLeaveReason}
+              placeholder="Reason (optional)"
+              multiline
+              numberOfLines={3}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900"
+              style={{ minHeight: 72, textAlignVertical: 'top' }}
+            />
+            <View className="mt-4 flex-row gap-2">
+              <Pressable
+                onPress={() => setLeaveOpen(false)}
+                disabled={leave.isPending}
+                className="flex-1 items-center rounded-lg border border-gray-300 py-2.5 disabled:opacity-50"
+              >
+                <Text className="text-sm font-semibold text-gray-600">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleRequestLeave}
+                disabled={leave.isPending}
+                className="flex-1 items-center rounded-lg bg-red-600 py-2.5 disabled:opacity-50"
+              >
+                <Text className="text-sm font-semibold text-white">{leave.isPending ? 'Sending…' : 'Send request'}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }

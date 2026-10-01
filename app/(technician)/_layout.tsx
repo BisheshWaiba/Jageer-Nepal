@@ -8,6 +8,7 @@ import { ROLE_ACCENT } from '../../lib/constants/roleColors';
 import { WebSidebarShell, WEB_SIDEBAR_MIN_WIDTH, type WebNavItem } from '../../lib/components/web/WebSidebarShell';
 import { IncomingJobOffer } from '../../lib/components/IncomingJobOffer';
 import { TechnicianHoldNotice } from '../../lib/components/HoldNotice';
+import { TechnicianLeaveNotice } from '../../lib/components/LeaveRequestNotice';
 import { useAuthStore } from '../../lib/hooks/useAuth';
 import { useMyStaffRole } from '../../lib/hooks/useTechnicianEmployment';
 import { useShareLiveLocation } from '../../lib/hooks/useShareLiveLocation';
@@ -93,6 +94,7 @@ export default function TechnicianLayout() {
           tabs
         )}
         <TechnicianHoldNotice technicianId={userId} />
+        <TechnicianLeaveNotice technicianId={userId} />
         <IncomingJobOffer technicianId={userId} />
       </View>
     </RoleGuard>

@@ -7,7 +7,14 @@ import { useAuthStore } from '../../lib/hooks/useAuth';
 import { useSupabaseQuery } from '../../lib/hooks/useSupabase';
 import { CategoryGrid } from '../../lib/components/CategoryGrid';
 import { ServiceActionSheet } from '../../lib/components/ServiceActionSheet';
-import { usePendingHires, useMyEmployees, useRespondToHire, useEndEmployment } from '../../lib/hooks/useTechnicianEmployment';
+import {
+  usePendingHires,
+  useMyEmployees,
+  useRespondToHire,
+  useEndEmployment,
+  useLeaveRequests,
+  useDecideLeaveRequest,
+} from '../../lib/hooks/useTechnicianEmployment';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
 import { WEB_SIDEBAR_MIN_WIDTH } from '../../lib/components/web/WebSidebarShell';
 import type { Profile, ServiceCategory } from '../../types/database.types';
@@ -27,6 +34,16 @@ function HiringSections({ userId }: { userId: string }) {
   const { data: employees } = useMyEmployees(userId);
   const respondToHire = useRespondToHire();
   const endEmployment = useEndEmployment();
+  const leaveRequests = useLeaveRequests(userId);
+  const decideLeave = useDecideLeaveRequest();
+
+  async function handleLeave(id: string, approve: boolean) {
+    try {
+      await decideLeave.decide(id, approve);
+    } catch (err) {
+      showAlert('Could not respond', getErrorMessage(err));
+    }
+  }
 
   async function handleRespond(id: string, accept: boolean) {
     try {
@@ -55,6 +72,43 @@ function HiringSections({ userId }: { userId: string }) {
 
   return (
     <>
+      {leaveRequests.length > 0 && (
+        <>
+          <Text className="mb-3 mt-3 text-[15px] font-bold text-gray-900">Requests to Leave</Text>
+          {leaveRequests.map(({ employment, profile }) => (
+            <View key={employment.id} className="mb-2.5 rounded-2xl border border-amber-200 bg-amber-50 p-3.5">
+              <View className="mb-2.5 flex-row items-center gap-3">
+                <View className="h-11 w-11 items-center justify-center rounded-full bg-amber-500">
+                  <Text className="text-xs font-bold text-white">{initialsOf(profile.full_name)}</Text>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-[13.5px] font-bold text-gray-900">{profile.full_name ?? 'Technician'}</Text>
+                  <Text className="mt-0.5 text-[11.5px] text-gray-600" numberOfLines={2}>
+                    {employment.leave_reason ? `Wants to leave · ${employment.leave_reason}` : 'Wants to leave your team'}
+                  </Text>
+                </View>
+              </View>
+              <View className="flex-row gap-2.5">
+                <Pressable
+                  onPress={() => handleLeave(employment.id, false)}
+                  disabled={decideLeave.isPending}
+                  className="flex-1 items-center rounded-lg border border-gray-300 bg-white py-2 disabled:opacity-50"
+                >
+                  <Text className="text-xs font-semibold text-gray-600">Reject</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => handleLeave(employment.id, true)}
+                  disabled={decideLeave.isPending}
+                  className="flex-1 items-center rounded-lg bg-red-600 py-2 disabled:opacity-50"
+                >
+                  <Text className="text-xs font-semibold text-white">Approve</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </>
+      )}
+
       {pendingHires.length > 0 && (
         <>
           <Text className="mb-3 mt-3 text-[15px] font-bold text-gray-900">Hiring Requests</Text>

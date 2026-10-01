@@ -110,6 +110,13 @@ export interface TechnicianEmployment {
   /** 'supervisor' can hand this reseller's work to the rest of the team;
    * 'technician' just carries their own jobs (migration 0077). */
   staff_role: 'technician' | 'supervisor';
+  /** Set when the technician has asked to leave - the employment only ends
+   * once the employer approves (migration 0081). */
+  leave_requested_at: string | null;
+  leave_reason: string | null;
+  /** Stamped when the employer turned the last request down; cleared by the
+   * next one. */
+  leave_rejected_at: string | null;
 }
 
 /** A technician's live position - readable only by them, their employer and admins (migration 0080). */
