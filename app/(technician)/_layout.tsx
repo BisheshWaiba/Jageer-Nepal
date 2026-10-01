@@ -10,6 +10,7 @@ import { IncomingJobOffer } from '../../lib/components/IncomingJobOffer';
 import { TechnicianHoldNotice } from '../../lib/components/HoldNotice';
 import { useAuthStore } from '../../lib/hooks/useAuth';
 import { useMyStaffRole } from '../../lib/hooks/useTechnicianEmployment';
+import { useShareLiveLocation } from '../../lib/hooks/useShareLiveLocation';
 
 const NAV_ITEMS: WebNavItem[] = [
   { href: '/(technician)/dashboard', label: 'Home', icon: 'home' },
@@ -28,6 +29,7 @@ export default function TechnicianLayout() {
   const { width } = useWindowDimensions();
   const userId = useAuthStore((state) => state.session?.user.id);
   const isSupervisor = useMyStaffRole(userId) === 'supervisor';
+  useShareLiveLocation(userId);
   const isWideWeb = Platform.OS === 'web' && width >= WEB_SIDEBAR_MIN_WIDTH;
   const tabs = (
     <Tabs

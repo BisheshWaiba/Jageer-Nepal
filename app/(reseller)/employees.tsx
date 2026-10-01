@@ -565,6 +565,14 @@ export default function TechnicalEmployees() {
     >
       <View className="flex-row flex-wrap" style={{ gap: 12 }}>
         <ActionCard
+          icon="pulse"
+          title="Team activity"
+          body="Jobs sent, when, how long they took - and where each employee is right now."
+          color="#7C3AED"
+          tint="#F5F3FF"
+          onPress={() => router.push('/(reseller)/team-activity' as any)}
+        />
+        <ActionCard
           icon="person-add"
           title="Invite a technician"
           body="They already use Jageer - once they accept you can send them jobs."

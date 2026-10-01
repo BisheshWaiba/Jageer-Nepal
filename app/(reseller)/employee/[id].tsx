@@ -16,6 +16,8 @@ import { useFormDraft, formatDraftTime } from '../../../lib/hooks/useFormDraft';
 import { PersonAvatar } from '../../../lib/components/PersonAvatar';
 import { TimeField } from '../../../lib/components/DateTimeFields';
 import { AssignJobList } from '../../../lib/components/AssignJobToEmployee';
+import { LocationLine, TeamJobRow } from '../../../lib/components/TeamActivity';
+import { useTeamJobs, useTeamLocations } from '../../../lib/hooks/useTeamActivity';
 import { useWideDetail } from '../../../lib/components/detail/DetailLayout';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
 import { isValidPhone10 } from '../../../lib/utils/phone';
@@ -279,6 +281,27 @@ function leave() {
   else router.replace('/(reseller)/employees' as any);
 }
 
+/** Where they are and every job sent to them, with assigned / accepted times
+ * and how long the work took. */
+function ActivityCard({ technicianId, name }: { technicianId: string; name: string }) {
+  const userId = useAuthStore((state) => state.session?.user.id);
+  const locations = useTeamLocations(userId);
+  const { data: jobs, isLoading } = useTeamJobs(userId, [technicianId]);
+  return (
+    <Card icon="pulse-outline" title="Location & activity">
+      <LocationLine loc={locations.get(technicianId)} showMap />
+      <Text className="mb-1 mt-4 text-[13px] font-bold text-gray-900">Jobs sent to {name.split(/\s+/)[0]}</Text>
+      <View className="-mx-4 overflow-hidden border-t border-gray-100">
+        {jobs.length === 0 ? (
+          <Text className="px-4 py-4 text-sm text-gray-500">{isLoading ? 'Loading…' : 'No jobs sent yet.'}</Text>
+        ) : (
+          jobs.slice(0, 20).map((job) => <TeamJobRow key={job.request.id} job={job} />)
+        )}
+      </View>
+    </Card>
+  );
+}
+
 /** An employee with their own Jageer account. Same fields as a hand-added
  * person, except name, email and phone belong to their account - the
  * employer owns the job title, work hours and note (enforced by the
@@ -366,6 +389,8 @@ function TechnicianEmployee({ employmentId }: { employmentId: string }) {
       <Card icon="paper-plane-outline" title="Assign a job">
         <AssignJobList technicianId={profile.id} technicianName={name} />
       </Card>
+
+      <ActivityCard technicianId={profile.id} name={name} />
 
       {!!editor.restoredAt && <RestoredDraftBanner at={editor.restoredAt} onDiscard={editor.discardDraft} />}
 

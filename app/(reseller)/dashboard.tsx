@@ -94,7 +94,12 @@ function HiringSections({ userId }: { userId: string }) {
 
       {employees.length > 0 && (
         <>
-          <Text className="mb-3 mt-3 text-[15px] font-bold text-gray-900">My Technical Employees</Text>
+          <View className="mb-3 mt-3 flex-row items-center justify-between">
+            <Text className="text-[15px] font-bold text-gray-900">My Technical Employees</Text>
+            <Pressable onPress={() => router.push('/(reseller)/team-activity' as any)} hitSlop={8}>
+              <Text className="text-xs font-semibold text-blue-600">Track activity →</Text>
+            </Pressable>
+          </View>
           {employees.map(({ employment, profile }) => (
             <View
               key={employment.id}

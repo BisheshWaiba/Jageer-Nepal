@@ -9,7 +9,7 @@ import type { RequestLocation, TechnicianEmployment } from '../../types/database
 /** Whether the current local time falls within a technician_employment row's
  * daily work-hours window. Handles an overnight window (e.g. 22:00-06:00)
  * by wrapping around midnight. */
-function isWithinWorkHours(row: Pick<TechnicianEmployment, 'work_start_time' | 'work_end_time'>): boolean {
+export function isWithinWorkHours(row: Pick<TechnicianEmployment, 'work_start_time' | 'work_end_time'>): boolean {
   if (!row.work_start_time || !row.work_end_time) return false;
   const [sh, sm] = row.work_start_time.split(':').map(Number);
   const [eh, em] = row.work_end_time.split(':').map(Number);

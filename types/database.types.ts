@@ -112,6 +112,15 @@ export interface TechnicianEmployment {
   staff_role: 'technician' | 'supervisor';
 }
 
+/** A technician's live position - readable only by them, their employer and admins (migration 0080). */
+export interface TechnicianLocation {
+  technician_id: string;
+  latitude: number;
+  longitude: number;
+  accuracy_m: number | null;
+  updated_at: string;
+}
+
 export interface RequestLocation {
   latitude?: number;
   longitude?: number;
@@ -158,6 +167,8 @@ export interface ServiceRequest {
   hold_note: string | null;
   hold_requested_at: string | null;
   hold_resolved_at: string | null;
+  /** When the job was last offered to its technician (migration 0080). */
+  assigned_at: string | null;
   created_at: string;
   updated_at: string;
   /** Offered to the whole team: any of this reseller's employees can take
@@ -548,6 +559,12 @@ export interface Database {
         Row: TechnicianEmployment;
         Insert: Partial<TechnicianEmployment>;
         Update: Partial<TechnicianEmployment>;
+        Relationships: [];
+      };
+      technician_locations: {
+        Row: TechnicianLocation;
+        Insert: Partial<TechnicianLocation>;
+        Update: Partial<TechnicianLocation>;
         Relationships: [];
       };
       statement_imports: {

@@ -80,6 +80,14 @@ export default function ResellerLayout() {
           }}
         />
         <Tabs.Screen
+          name="team-activity"
+          options={{
+            href: null,
+            title: 'Team Activity',
+            header: ({ options }) => <PortalHeaderBar title={options.title} backTo="/(reseller)/employees" />,
+          }}
+        />
+        <Tabs.Screen
           name="employee/[id]"
           options={{
             href: null,

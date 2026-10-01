@@ -214,6 +214,13 @@ export default function EmploymentScreen() {
             Outside these hours you're free to take outsource work from other resellers too. Contact your employer
             to change your work hours.
           </Text>
+          <View className="mb-4 flex-row items-start gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5">
+            <Ionicons name="location-outline" size={15} color="#2563EB" />
+            <Text className="flex-1 text-[11.5px] leading-[16px] text-blue-900">
+              During your work hours, while the app is open, your employer can see where you are and the jobs
+              they've sent you. Nothing is shared outside your shift or with other resellers.
+            </Text>
+          </View>
 
           <Pressable
             onPress={handleCancelOrLeave}
