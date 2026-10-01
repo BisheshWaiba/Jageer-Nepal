@@ -1,11 +1,10 @@
 // app/(reseller)/technician/[id].tsx
-import { View, Text, ScrollView, Pressable } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { View, Text, ScrollView } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../../lib/hooks/useAuth';
-import { useSupabaseQuery, useSupabaseRow } from '../../../lib/hooks/useSupabase';
-import { STATUS_STYLES } from '../../../lib/constants/requestStatus';
-import { CategoryBadge } from '../../../lib/components/CategoryBadge';
-import type { RequestStatus } from '../../../types/database.types';
+import { useSupabaseRow } from '../../../lib/hooks/useSupabase';
+import { useTeamJobs } from '../../../lib/hooks/useTeamActivity';
+import { TeamJobRow } from '../../../lib/components/TeamActivity';
 
 function initialsOf(name: string | null | undefined) {
   if (!name) return '?';
@@ -17,25 +16,12 @@ function initialsOf(name: string | null | undefined) {
     .join('');
 }
 
-function StatusPill({ status }: { status: RequestStatus }) {
-  const style = STATUS_STYLES[status];
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${style.bg}`}>
-      <Text className={`text-[10px] font-semibold uppercase ${style.text}`}>{style.label}</Text>
-    </View>
-  );
-}
-
 export default function TechnicianWorkHistory() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const userId = useAuthStore((state) => state.session?.user.id);
 
   const { data: technician, isLoading: loadingTech } = useSupabaseRow('profiles', id);
-  const { data: history, isLoading: loadingHistory } = useSupabaseQuery('service_requests', {
-    filters: userId && id ? { reseller_id: userId, technician_id: id } : {},
-    orderBy: { column: 'created_at', ascending: false },
-    enabled: !!userId && !!id,
-  });
+  const { data: jobs, isLoading: loadingHistory } = useTeamJobs(userId, id ? [id] : []);
 
   if (loadingTech || !technician) {
     return (
@@ -61,35 +47,15 @@ export default function TechnicianWorkHistory() {
       <Text className="mb-3 text-[15px] font-bold text-gray-900">Work history</Text>
 
       {loadingHistory && <Text className="text-gray-500">Loading…</Text>}
-      {!loadingHistory && (history?.length ?? 0) === 0 && (
-        <Text className="text-gray-500">No jobs with this technician yet.</Text>
-      )}
+      {!loadingHistory && jobs.length === 0 && <Text className="text-gray-500">No jobs with this technician yet.</Text>}
 
-      {(history ?? []).map((item) => {
-        return (
-          <Pressable
-            key={item.id}
-            onPress={() => router.push(`/(reseller)/request/${item.id}`)}
-            className="mb-3 flex-row items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4"
-          >
-            <CategoryBadge category={item.issue_type} />
-            <View className="flex-1">
-              <View className="flex-row items-start justify-between gap-2">
-                <Text className="flex-1 font-semibold text-gray-900">{item.issue_type}</Text>
-                <StatusPill status={item.status} />
-              </View>
-              {item.customer_name && (
-                <Text className="mt-1 text-sm text-gray-600" numberOfLines={1}>
-                  Customer: {item.customer_name}
-                </Text>
-              )}
-              <Text className="mt-1 text-xs text-gray-400">
-                {new Date(item.created_at).toLocaleDateString()}
-              </Text>
-            </View>
-          </Pressable>
-        );
-      })}
+      {jobs.length > 0 && (
+        <View className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+          {jobs.map((job) => (
+            <TeamJobRow key={job.request.id} job={job} />
+          ))}
+        </View>
+      )}
     </ScrollView>
   );
 }

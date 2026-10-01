@@ -79,25 +79,62 @@ function Stat({ icon, label, value, tone }: { icon: keyof typeof Ionicons.glyphM
   );
 }
 
-/** One job in the timeline: what it is, who has it, when it was sent, when it
- * was accepted, and how long the work took. */
+const STEPS = ['Assigned', 'Accepted', 'Working', 'Completed'] as const;
+
+/** Four-step bar: how far the job has got. Cancelled jobs show no bar. */
+export function JobProgress({ job }: { job: TeamJob }) {
+  const { request, acceptedAt } = job;
+  // Index of the step the job is on; steps before it are done.
+  const at = request.status === 'resolved' ? 3 : request.status === 'in_progress' ? 2 : acceptedAt ? 1 : 0;
+  const finished = request.status === 'resolved';
+  return (
+    <View className="mt-3 flex-row items-start">
+      {STEPS.map((label, i) => {
+        const done = i < at || (finished && i === at);
+        const current = i === at && !finished;
+        const color = done ? '#059669' : current ? '#2563EB' : '#D1D5DB';
+        return (
+          <View key={label} className="flex-1 items-center">
+            <View className="w-full flex-row items-center">
+              <View className="h-[3px] flex-1" style={{ backgroundColor: i === 0 ? 'transparent' : i <= at ? '#059669' : '#E5E7EB' }} />
+              <View
+                className="items-center justify-center rounded-full"
+                style={{ width: 20, height: 20, backgroundColor: done || current ? color : '#FFFFFF', borderWidth: 2, borderColor: color }}
+              >
+                {done ? <Ionicons name="checkmark" size={12} color="#fff" /> : current ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' }} /> : null}
+              </View>
+              <View className="h-[3px] flex-1" style={{ backgroundColor: i === STEPS.length - 1 ? 'transparent' : i < at ? '#059669' : '#E5E7EB' }} />
+            </View>
+            <Text className="mt-1 text-[10.5px] font-semibold" style={{ color: done || current ? '#111827' : '#9CA3AF' }}>
+              {label}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** One job: what it is, who has it, a prominent "assigned" time, a progress
+ * bar, and when it was accepted / how long the work took. */
 export function TeamJobRow({ job, technicianName }: { job: TeamJob; technicianName?: string }) {
   const now = useTick();
   const { request, acceptedAt, completedAt, running } = job;
   const status = STATUS_STYLES[request.status];
-  const assigned = request.assigned_at ? formatTimestamp(request.assigned_at) : '-';
+  const assignedIso = request.assigned_at ?? request.created_at;
   const work =
     job.workMs == null
       ? request.status === 'assigned'
         ? 'Not accepted yet'
         : '-'
       : formatDuration(running && acceptedAt ? now - new Date(acceptedAt).getTime() : job.workMs);
-  const waiting = request.status === 'assigned' && request.assigned_at ? `Waiting ${formatDuration(now - new Date(request.assigned_at).getTime())}` : null;
+  const waiting = request.status === 'assigned' ? `Waiting ${formatDuration(now - new Date(assignedIso).getTime())}` : null;
+  const showProgress = request.status !== 'cancelled' && request.status !== 'pending' && request.status !== 'approved' && request.status !== 'quoted';
 
   return (
     <Pressable
       onPress={() => router.push(`/(reseller)/request/${request.id}` as any)}
-      className="border-b border-gray-100 px-4 py-3 active:bg-gray-50"
+      className="border-b border-gray-100 px-4 py-3.5 active:bg-gray-50"
     >
       <View className="flex-row items-start justify-between gap-2">
         <View className="flex-1">
@@ -112,8 +149,21 @@ export function TeamJobRow({ job, technicianName }: { job: TeamJob; technicianNa
           <Text className={`text-[10px] font-semibold uppercase ${status.text}`}>{status.label}</Text>
         </View>
       </View>
-      <View className="mt-2 flex-row flex-wrap" style={{ gap: 10 }}>
-        <Stat icon="paper-plane-outline" label="Assigned" value={assigned} />
+
+      <View className="mt-2.5 flex-row items-center gap-2 rounded-lg bg-blue-50 px-3 py-2">
+        <Ionicons name="paper-plane" size={15} color="#1D4ED8" />
+        <View className="flex-1">
+          <Text className="text-[10px] font-bold uppercase tracking-wide text-blue-700">Assigned</Text>
+          <Text className="text-[14px] font-bold text-blue-950" style={{ color: '#1E3A8A' }}>
+            {formatTimestamp(assignedIso)}
+          </Text>
+        </View>
+        <Text className="text-xs font-medium text-blue-700">{ago(assignedIso, now)}</Text>
+      </View>
+
+      {showProgress && <JobProgress job={job} />}
+
+      <View className="mt-3 flex-row flex-wrap" style={{ gap: 10 }}>
         <Stat
           icon="play-circle-outline"
           label="Accepted"
