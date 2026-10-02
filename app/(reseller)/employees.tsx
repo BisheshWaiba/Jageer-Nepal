@@ -1,7 +1,7 @@
 // app/(reseller)/employees.tsx
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Linking, Modal, KeyboardAvoidingView, Platform } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../lib/hooks/useAuth';
 import { useSupabaseQuery, useSupabaseInsert } from '../../lib/hooks/useSupabase';
@@ -22,13 +22,14 @@ import { PersonAvatar } from '../../lib/components/PersonAvatar';
 import { TimeField } from '../../lib/components/DateTimeFields';
 import { AssignJobSheet } from '../../lib/components/AssignJobToEmployee';
 import { useWideDetail } from '../../lib/components/detail/DetailLayout';
+import { TeamActivityView } from '../../lib/components/team/TeamActivityView';
+import { SegmentedSwitch } from '../../lib/components/team/TeamParts';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
 import { isValidPhone10 } from '../../lib/utils/phone';
 import { workHoursIssue } from '../../lib/utils/workHours';
 import type { ManualEmployee, Profile, TechnicianEmployment } from '../../types/database.types';
 
 const BLUE = '#2563EB';
-const GREEN = '#059669';
 
 function useDebounced<T>(value: T, delayMs = 300): T {
   const [debounced, setDebounced] = useState(value);
@@ -47,40 +48,6 @@ const EMPTY_MANUAL = { name: '', email: '', phone: '', jobTitle: '', start: '09:
 
 function openEmployee(id: string, kind?: 'manual') {
   router.push(`/(reseller)/employee/${id}${kind ? '?kind=manual' : ''}` as any);
-}
-
-/** One of the two big cards at the top - each opens its own form. */
-function ActionCard({
-  icon,
-  title,
-  body,
-  color,
-  tint,
-  onPress,
-}: {
-  icon: ComponentProps<typeof Ionicons>['name'];
-  title: string;
-  body: string;
-  color: string;
-  tint: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className="flex-row items-center gap-3.5 rounded-2xl p-4"
-      style={{ backgroundColor: tint, borderWidth: 1, borderColor: `${color}33`, flexGrow: 1, flexBasis: 280 }}
-    >
-      <View className="h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: color }}>
-        <Ionicons name={icon} size={22} color="#FFFFFF" />
-      </View>
-      <View className="flex-1">
-        <Text className="text-[15px] font-bold text-gray-900">{title}</Text>
-        <Text className="mt-0.5 text-xs leading-[17px] text-gray-600">{body}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={color} />
-    </Pressable>
-  );
 }
 
 function FormModal({
@@ -344,7 +311,43 @@ function TeamRow({ member, last }: { member: TeamMember; last: boolean }) {
   );
 }
 
-export default function TechnicalEmployees() {
+/** The reseller's Team: what the team is doing right now (Activity) and who
+ * is on it (People). Opens on Activity; `?tab=people` opens the roster. */
+export default function TeamHub() {
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<'activity' | 'people'>(params.tab === 'people' ? 'people' : 'activity');
+  const [attention, setAttention] = useState(0);
+  const wide = useWideDetail();
+
+  // Links from elsewhere (?tab=...) re-point a screen that stays mounted.
+  useEffect(() => {
+    if (params.tab === 'people' || params.tab === 'activity') setTab(params.tab);
+  }, [params.tab]);
+
+  return (
+    <View className="flex-1 bg-gray-50">
+      <View className="border-b border-gray-100 bg-white" style={{ paddingHorizontal: wide ? 32 : 16, paddingVertical: 10 }}>
+        <View style={{ maxWidth: 980, width: '100%', alignSelf: 'center' }}>
+          <SegmentedSwitch
+            value={tab}
+            onChange={setTab}
+            options={[
+              { key: 'activity', label: 'Activity', badge: attention },
+              { key: 'people', label: 'People' },
+            ]}
+          />
+        </View>
+      </View>
+      {tab === 'activity' ? (
+        <TeamActivityView onOpenPeople={() => setTab('people')} onAttentionCount={setAttention} />
+      ) : (
+        <People />
+      )}
+    </View>
+  );
+}
+
+function People() {
   const userId = useAuthStore((state) => state.session?.user.id);
   const wide = useWideDetail();
   const { data: employees } = useMyEmployees(userId);
@@ -563,35 +566,32 @@ export default function TechnicalEmployees() {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ padding: wide ? 32 : 16, paddingTop: wide ? 24 : 16, paddingBottom: 48, gap: 20 }}
     >
-      <View className="flex-row flex-wrap" style={{ gap: 12 }}>
-        <ActionCard
-          icon="pulse"
-          title="Team activity"
-          body="Jobs sent, when, how long they took - and where each employee is right now."
-          color="#7C3AED"
-          tint="#F5F3FF"
-          onPress={() => router.push('/(reseller)/team-activity' as any)}
-        />
-        <ActionCard
-          icon="person-add"
-          title="Invite a technician"
-          body="They already use Jageer - once they accept you can send them jobs."
-          color={BLUE}
-          tint="#EFF6FF"
-          onPress={() => setShowInvite(true)}
-        />
-        <ActionCard
-          icon="people"
-          title="Add a technician"
-          body={
-            addDraft.draft
-              ? `Draft saved ${formatDraftTime(addDraft.draft.savedAt)} - tap to finish adding ${addDraft.draft.values.name.trim() || 'them'}.`
-              : 'Staff with no Jageer account - kept here so you can call them.'
-          }
-          color={GREEN}
-          tint="#ECFDF5"
-          onPress={() => setShowAdd(true)}
-        />
+      <View style={{ gap: 8 }}>
+        <View className="flex-row flex-wrap" style={{ gap: 10 }}>
+          <Pressable
+            onPress={() => setShowInvite(true)}
+            accessibilityRole="button"
+            className="h-12 flex-row items-center justify-center rounded-xl px-5"
+            style={{ backgroundColor: BLUE, gap: 8, flexGrow: 1, flexBasis: 200 }}
+          >
+            <Ionicons name="person-add" size={17} color="#FFFFFF" />
+            <Text className="text-[15px] font-bold text-white">Invite a technician</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setShowAdd(true)}
+            accessibilityRole="button"
+            className="h-12 flex-row items-center justify-center rounded-xl border border-gray-300 bg-white px-5"
+            style={{ gap: 8, flexGrow: 1, flexBasis: 200 }}
+          >
+            <Ionicons name="person-add-outline" size={17} color="#374151" />
+            <Text className="text-[15px] font-bold text-gray-700">Add without an account</Text>
+          </Pressable>
+        </View>
+        <Text className="px-1 text-xs leading-[17px] text-gray-500">
+          {addDraft.draft
+            ? `Draft saved ${formatDraftTime(addDraft.draft.savedAt)}: tap Add without an account to finish adding ${addDraft.draft.values.name.trim() || 'them'}.`
+            : 'Invite someone who already uses Jageer so you can send them jobs. Add staff with no account to keep their details and call them.'}
+        </Text>
       </View>
 
       <Section title="My technical employees" count={team.length}>
@@ -755,7 +755,7 @@ export default function TechnicalEmployees() {
         visible={showAdd}
         title="Add a technician"
         subtitle="For staff with no Jageer account. Jobs can only be sent in the app to a technician who has one."
-        color={GREEN}
+        color={BLUE}
         submitLabel={addManual.isPending ? 'Adding…' : 'Add to my team'}
         submitting={addManual.isPending}
         onSubmit={handleAddManual}

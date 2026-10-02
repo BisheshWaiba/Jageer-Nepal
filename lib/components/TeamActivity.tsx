@@ -117,7 +117,18 @@ export function JobProgress({ job }: { job: TeamJob }) {
 
 /** One job: what it is, who has it, a prominent "assigned" time, a progress
  * bar, and when it was accepted / how long the work took. */
-export function TeamJobRow({ job, technicianName }: { job: TeamJob; technicianName?: string }) {
+export function TeamJobRow({
+  job,
+  technicianName,
+  compact,
+  last,
+}: {
+  job: TeamJob;
+  technicianName?: string;
+  /** Finished jobs collapse to one line; active jobs keep the full detail. */
+  compact?: boolean;
+  last?: boolean;
+}) {
   const now = useTick();
   const { request, acceptedAt, completedAt, running } = job;
   const status = STATUS_STYLES[request.status];
@@ -131,10 +142,35 @@ export function TeamJobRow({ job, technicianName }: { job: TeamJob; technicianNa
   const waiting = request.status === 'assigned' ? `Waiting ${formatDuration(now - new Date(assignedIso).getTime())}` : null;
   const showProgress = request.status !== 'cancelled' && request.status !== 'pending' && request.status !== 'approved' && request.status !== 'quoted';
 
+  if (compact && request.status === 'resolved') {
+    return (
+      <Pressable
+        onPress={() => router.push(`/(reseller)/request/${request.id}` as any)}
+        className={`flex-row items-center gap-3 px-4 py-3 active:bg-gray-50 ${last ? '' : 'border-b border-gray-100'}`}
+        accessibilityRole="button"
+        accessibilityLabel={`${request.issue_type}, done`}
+      >
+        <Ionicons name="checkmark-circle" size={18} color="#15803D" />
+        <View className="flex-1">
+          <Text className="text-[13.5px] font-semibold text-gray-900" numberOfLines={1}>
+            {request.issue_type}
+          </Text>
+          <Text className="text-xs text-gray-500" numberOfLines={1}>
+            {[technicianName, request.customer_name].filter(Boolean).join(' · ') || 'No customer name'}
+          </Text>
+        </View>
+        <View className="items-end">
+          <Text className="text-xs font-bold text-green-700">{work === '-' ? 'Done' : `Done · ${work}`}</Text>
+          <Text className="text-[11px] text-gray-400">{formatTimestamp(completedAt ?? assignedIso)}</Text>
+        </View>
+      </Pressable>
+    );
+  }
+
   return (
     <Pressable
       onPress={() => router.push(`/(reseller)/request/${request.id}` as any)}
-      className="border-b border-gray-100 px-4 py-3.5 active:bg-gray-50"
+      className={`px-4 py-3.5 active:bg-gray-50 ${last ? '' : 'border-b border-gray-100'}`}
     >
       <View className="flex-row items-start justify-between gap-2">
         <View className="flex-1">

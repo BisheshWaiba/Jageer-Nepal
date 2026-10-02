@@ -15,8 +15,10 @@ import {
 import { useFormDraft, formatDraftTime } from '../../../lib/hooks/useFormDraft';
 import { PersonAvatar } from '../../../lib/components/PersonAvatar';
 import { TimeField } from '../../../lib/components/DateTimeFields';
-import { AssignJobList } from '../../../lib/components/AssignJobToEmployee';
-import { LocationLine, TeamJobRow } from '../../../lib/components/TeamActivity';
+import { AssignJobSheet } from '../../../lib/components/AssignJobToEmployee';
+import { LocationLine, TeamJobRow, useTick } from '../../../lib/components/TeamActivity';
+import { StateChip, SegmentedSwitch } from '../../../lib/components/team/TeamParts';
+import { buildMember } from '../../../lib/utils/teamStatus';
 import { useTeamJobs, useTeamLocations } from '../../../lib/hooks/useTeamActivity';
 import { useWideDetail } from '../../../lib/components/detail/DetailLayout';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
@@ -288,14 +290,14 @@ function ActivityCard({ technicianId, name }: { technicianId: string; name: stri
   const locations = useTeamLocations(userId);
   const { data: jobs, isLoading } = useTeamJobs(userId, [technicianId]);
   return (
-    <Card icon="pulse-outline" title="Location & activity">
+    <Card icon="pulse-outline" title="Location & jobs">
       <LocationLine loc={locations.get(technicianId)} showMap />
       <Text className="mb-1 mt-4 text-[13px] font-bold text-gray-900">Jobs sent to {name.split(/\s+/)[0]}</Text>
       <View className="-mx-4 overflow-hidden border-t border-gray-100">
         {jobs.length === 0 ? (
           <Text className="px-4 py-4 text-sm text-gray-500">{isLoading ? 'Loading…' : 'No jobs sent yet.'}</Text>
         ) : (
-          jobs.slice(0, 20).map((job) => <TeamJobRow key={job.request.id} job={job} />)
+          jobs.slice(0, 20).map((job, i, all) => <TeamJobRow key={job.request.id} job={job} compact last={i === all.length - 1} />)
         )}
       </View>
     </Card>
@@ -331,8 +333,14 @@ function TechnicianEmployee({ employmentId }: { employmentId: string }) {
   const name = match?.profile.full_name ?? 'Technician';
   const editor = useEmployeeEditor(`employee:${employmentId}`, saved, name);
   const { form, setForm } = editor;
+  const [tab, setTab] = useState<'activity' | 'details'>('activity');
+  const [assigning, setAssigning] = useState(false);
+  const now = useTick();
+  const locations = useTeamLocations(userId);
+  const { data: jobs } = useTeamJobs(userId, match ? [match.profile.id] : []);
 
   if (!match || !form) return <Loading text="Loading…" />;
+  const member = buildMember(match.employment, match.profile, jobs, locations.get(match.profile.id), now);
   const { profile } = match;
   const email = emailOf.get(profile.id) ?? null;
 
@@ -378,22 +386,59 @@ function TechnicianEmployee({ employmentId }: { employmentId: string }) {
   }
 
   return (
-    <Page footer={<SaveBar editor={editor} saving={update.isPending} onSave={handleSave} />}>
-      <Header
-        name={name}
-        subtitle={`Has a Jageer account${form.jobTitle ? ` · ${form.jobTitle}` : ''}`}
-        photoUrl={profile.avatar_url}
-        phone={profile.phone}
+    <Page footer={tab === 'details' ? <SaveBar editor={editor} saving={update.isPending} onSave={handleSave} /> : undefined}>
+      <View className="rounded-2xl border border-gray-200 bg-white p-4" style={{ gap: 14 }}>
+        <View className="flex-row items-center gap-3">
+          <PersonAvatar name={name} photoUrl={profile.avatar_url} size={54} bg={profile.avatar_url ? 'bg-blue-600' : 'bg-gray-500'} />
+          <View className="flex-1" style={{ gap: 4 }}>
+            <Text className="text-lg font-bold text-gray-900" numberOfLines={1}>
+              {name}
+            </Text>
+            <Text className="text-xs text-gray-500" numberOfLines={1}>
+              {form.staffRole === 'supervisor' ? 'Supervisor' : 'Technician'}
+              {form.jobTitle ? ` · ${form.jobTitle}` : ''}
+            </Text>
+            <StateChip state={member.state} />
+          </View>
+          {!!profile.phone && (
+            <Pressable
+              onPress={() => Linking.openURL(`tel:${profile.phone}`)}
+              className="h-11 w-11 items-center justify-center rounded-full bg-blue-50"
+              accessibilityLabel="Call"
+            >
+              <Ionicons name="call-outline" size={19} color={BLUE} />
+            </Pressable>
+          )}
+        </View>
+        <LocationLine loc={member.loc} />
+        <Pressable
+          onPress={() => setAssigning(true)}
+          accessibilityRole="button"
+          className="h-12 flex-row items-center justify-center rounded-xl"
+          style={{ backgroundColor: BLUE, gap: 8 }}
+        >
+          <Ionicons name="paper-plane" size={16} color="#FFFFFF" />
+          <Text className="text-[15px] font-bold text-white">Assign a job</Text>
+        </Pressable>
+      </View>
+
+      <SegmentedSwitch
+        value={tab}
+        onChange={setTab}
+        options={[
+          { key: 'activity', label: 'Activity', badge: member.attention.length },
+          { key: 'details', label: 'Details' },
+        ]}
       />
 
-      <Card icon="paper-plane-outline" title="Assign a job">
-        <AssignJobList technicianId={profile.id} technicianName={name} />
-      </Card>
+      <AssignJobSheet visible={assigning} technicianId={profile.id} technicianName={name} onClose={() => setAssigning(false)} />
 
-      <ActivityCard technicianId={profile.id} name={name} />
+      {tab === 'activity' && <ActivityCard technicianId={profile.id} name={name} />}
 
-      {!!editor.restoredAt && <RestoredDraftBanner at={editor.restoredAt} onDiscard={editor.discardDraft} />}
+      {tab === 'details' && !!editor.restoredAt && <RestoredDraftBanner at={editor.restoredAt} onDiscard={editor.discardDraft} />}
 
+      {tab === 'details' && (
+      <>
       <Card icon="create-outline" title="Details">
         <Field label="Name" hint="From their own account - only they can change it.">
           <ReadOnlyValue value={profile.full_name} empty="No name yet" />
@@ -463,6 +508,8 @@ function TechnicianEmployee({ employmentId }: { employmentId: string }) {
       </Card>
 
       <RemoveButton label="Remove from my team" onPress={handleRemove} disabled={endEmployment.isPending} />
+      </>
+      )}
     </Page>
   );
 }
