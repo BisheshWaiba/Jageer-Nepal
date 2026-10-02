@@ -109,17 +109,18 @@ function MonthCalendarGrid({
 // The BS<->AD conversion (NepaliDate) only works inside BS 2000-2090, which
 // is roughly this AD window - both lists are clamped to it so nothing here
 // can ever land on a year the converter would throw on.
-const BS_MIN_YEAR = 2000;
-const BS_MAX_YEAR = 2090;
-const AD_MIN_YEAR = 1943;
-const AD_MAX_YEAR = 2033;
+export const BS_MIN_YEAR = 2000;
+export const BS_MAX_YEAR = 2090;
+export const AD_MIN_YEAR = 1943;
+export const AD_MAX_YEAR = 2033;
+export const AD_MONTH_LABELS = AD_MONTH_NAMES;
 
 /** Jump straight to a year and month instead of stepping through one month
  * at a time - opened by tapping the calendar header. Two columns, side by
  * side and independently scrollable (month names on the left, years on the
  * right), each auto-scrolled to whatever's already selected; tapping either
  * applies it immediately, no separate confirm step. */
-function YearMonthPicker({
+export function YearMonthPicker({
   monthNames,
   minYear,
   maxYear,

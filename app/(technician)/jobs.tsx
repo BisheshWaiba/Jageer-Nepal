@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../lib/hooks/useAuth';
 import { useSupabaseQuery, useSupabaseRow } from '../../lib/hooks/useSupabase';
 import { STATUS_STYLES } from '../../lib/constants/requestStatus';
@@ -181,7 +181,15 @@ function TabPill({ label, count, active, onPress }: { label: string; count: numb
 
 export default function TechnicianJobs() {
   const userId = useAuthStore((state) => state.session?.user.id);
-  const [tab, setTab] = useState<JobsTab>('in_progress');
+  // The dashboard's "Jobs completed" tile opens this tab on Completed. `t` is
+  // a changing stamp, so the tile works again even when the tab was already
+  // left on Completed and the person switched back to In progress by hand.
+  const { tab: tabParam, t: tabStamp } = useLocalSearchParams<{ tab?: string; t?: string }>();
+  const [tab, setTab] = useState<JobsTab>(tabParam === 'completed' ? 'resolved' : 'in_progress');
+  useEffect(() => {
+    if (tabParam === 'completed') setTab('resolved');
+    else if (tabParam === 'in_progress') setTab('in_progress');
+  }, [tabParam, tabStamp]);
 
   const { data: jobs, isLoading } = useSupabaseQuery('service_requests', {
     filters: userId ? { technician_id: userId } : {},

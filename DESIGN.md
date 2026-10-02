@@ -116,6 +116,8 @@ The palette is deliberately narrow: one blue role, a gray neutral scale, and thr
 
 **The Soft Badge Rule.** A status is always a light-tint background with saturated text of the same hue family (e.g. `#f0fdf4` / `#15803d`), rounded full, never a solid-fill chip.
 
+**The Chart Palette Exception.** A chart that has to tell several categories apart (the technician dashboard's jobs-by-category lines) uses a fixed set of six hues - `#2a78d6`, `#eb6834`, `#1baf7a`, `#eda100`, `#e87ba4`, `#008300` - and grey for any beyond them, handed out by a category's all-time rank so its colour never moves when the date range changes. The hue only ever identifies a category; it never means status or action.
+
 ## Typography
 
 **Body/UI Font:** System sans (`-apple-system, Roboto, Helvetica, Arial, sans-serif` — the platform default, no custom face is loaded)
@@ -179,6 +181,19 @@ A single bordered, rounded container holding multiple rows of an icon chip + lab
 
 ### Navigation
 - Bottom tab bar (mobile) / left sidebar (wide web): `Trusted Blue` for the active icon+label, `Neutral Placeholder` gray for inactive, Ionicons throughout (outline glyph inactive, filled glyph active).
+
+## Motion
+
+Motion here is quiet and functional - it confirms that something happened or shows where something went, and never decorates. It is all time-based (no bounce), short, and lives in `lib/components/Motion.tsx` so every screen moves the same way.
+
+- **Arrive** (`Rise`, `Appear`): a block fades in while rising a little, 240ms, with siblings arriving 40ms apart (never more than six steps, so a long list isn't slow). A card that appears later by realtime does the same.
+- **Leave and reflow:** a block fades out in 160ms, and the blocks around it glide into the gap over 220ms instead of jumping.
+- **Press** (`PressScale`): a tappable button shrinks to 0.97 (a whole card, 0.985) in 90ms and returns in 150ms, so a tap is felt before anything else happens.
+- **Loading** (`Pulse`, `JobCardSkeleton`): grey placeholder shapes breathe while data is on its way, so a screen never claims "nothing here" before it knows.
+- **Reduce motion:** every animation follows the system setting - it is skipped and the content simply appears.
+
+### Named Rules
+**The Presets-Only Rule.** Use Reanimated's built-in entering / exiting / layout presets (`FadeInDown`, `FadeIn`, `FadeOut`, `LinearTransition`) and don't customise them with keyframes, starting values or easings. On the web build a custom one leaves the view stuck at `position: absolute`, so it stops taking up room and everything below slides underneath it.
 
 ## Do's and Don'ts
 

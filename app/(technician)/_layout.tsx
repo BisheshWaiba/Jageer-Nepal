@@ -14,7 +14,7 @@ import { useMyStaffRole } from '../../lib/hooks/useTechnicianEmployment';
 import { useShareLiveLocation } from '../../lib/hooks/useShareLiveLocation';
 
 const NAV_ITEMS: WebNavItem[] = [
-  { href: '/(technician)/dashboard', label: 'Home', icon: 'home' },
+  { href: '/(technician)/dashboard', label: 'Dashboard', icon: 'home' },
   { href: '/(technician)/jobs', label: 'My Jobs', icon: 'briefcase' },
   { href: '/(technician)/earnings', label: 'Earnings', icon: 'wallet' },
 ];
@@ -44,10 +44,11 @@ export default function TechnicianLayout() {
       <Tabs.Screen
         name="dashboard"
         options={{
-          title: 'Home',
-          // Only the dashboard's own header gets the availability toggle -
-          // every other tab keeps the plain header from screenOptions above.
-          header: () => <PortalHeaderBar title="Home" showAvailabilityToggle />,
+          title: 'Dashboard',
+          // Only the dashboard's own header gets the availability toggle and
+          // the Inbox button - every other tab keeps the plain header from
+          // screenOptions above.
+          header: () => <PortalHeaderBar title="Dashboard" showAvailabilityToggle showInbox />,
           tabBarIcon: ({ color, focused }) => <TabIcon name="home" color={color} focused={focused} />,
         }}
       />
@@ -75,6 +76,16 @@ export default function TechnicianLayout() {
       <Tabs.Screen name="statement" options={{ href: null, title: 'Statement' }} />
       <Tabs.Screen name="job/[id]" options={{ href: null, title: 'Job Card' }} />
       <Tabs.Screen name="employment" options={{ href: null, title: 'Employment' }} />
+      {/* The old Home tab: offers to answer, open team work, employment.
+          Reached from the Inbox button in the dashboard's header. */}
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          href: null,
+          title: 'Inbox',
+          header: () => <PortalHeaderBar title="Inbox" backTo="/(technician)/dashboard" />,
+        }}
+      />
       {/* "available" self-assign screen removed: resellers now assign
           technicians directly (see app/(reseller)/request/[id].tsx). Delete
           app/(technician)/available.tsx if you copied it in earlier. */}

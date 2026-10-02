@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../hooks/useAuth';
 import { useSupabaseUpdate } from '../hooks/useSupabase';
 import { showAlert, getErrorMessage } from '../utils/alert';
+import { InboxButton } from './technician/InboxButton';
 
 function initialsOf(name: string | null | undefined) {
   if (!name) return '?';
@@ -72,10 +73,13 @@ function AvailabilityToggle() {
 export function PortalHeaderBar({
   title,
   showAvailabilityToggle,
+  showInbox,
   backTo,
 }: {
   title?: string;
   showAvailabilityToggle?: boolean;
+  /** Technician only: a button to the Inbox, with a count of what is waiting. */
+  showInbox?: boolean;
   backTo?: string;
 }) {
   const profile = useAuthStore((state) => state.profile);
@@ -102,6 +106,7 @@ export function PortalHeaderBar({
         {title ?? ''}
       </Text>
       {showAvailabilityToggle && profile?.role === 'technician' && <AvailabilityToggle />}
+      {showInbox && profile?.role === 'technician' && <InboxButton />}
       <Pressable onPress={() => profileRoute && router.push(profileRoute as never)} hitSlop={8}>
         <View className="h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-orange-100">
           {profile?.avatar_url ? (

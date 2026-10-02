@@ -72,7 +72,7 @@ function RingingBell({ size = 64 }: { size?: number }) {
  * a glance, a red Reject and a green Accept. "View details" tucks it into a
  * small bar at the top so they can read the job first and answer from there.
  * The close button (or Android back) puts it away without answering - the
- * offer stays under New assignments on their dashboard, and only a newer
+ * offer stays under New assignments in their Inbox, and only a newer
  * offer pops up again. */
 export function IncomingJobOffer({ technicianId }: { technicianId: string | undefined }) {
   const offers = useJobOffers(technicianId);
@@ -275,7 +275,7 @@ export function IncomingJobOffer({ technicianId }: { technicianId: string | unde
           <Text className="text-sm font-semibold text-blue-600">View full details first</Text>
         </Pressable>
         <Text className="text-center text-[11px] text-gray-400">
-          Close it to answer later from New assignments on your dashboard.
+          Close it to answer later from your Inbox.
         </Text>
       </View>
     </View>
