@@ -76,7 +76,7 @@ export default function ResellerLayout() {
           name="employees"
           options={{
             href: null,
-            title: 'Technical Employees',
+            title: 'Team',
             header: ({ options }) => <PortalHeaderBar title={options.title} backTo="/(reseller)/profile" />,
           }}
         />

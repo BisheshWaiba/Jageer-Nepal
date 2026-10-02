@@ -11,10 +11,13 @@ import {
   usePendingHires,
   useMyEmployees,
   useRespondToHire,
-  useEndEmployment,
   useLeaveRequests,
   useDecideLeaveRequest,
 } from '../../lib/hooks/useTechnicianEmployment';
+import { useTeamJobs, useTeamLocations } from '../../lib/hooks/useTeamActivity';
+import { useTick } from '../../lib/components/TeamActivity';
+import { PersonAvatar } from '../../lib/components/PersonAvatar';
+import { buildMember, sortMembers } from '../../lib/utils/teamStatus';
 import { showAlert, getErrorMessage } from '../../lib/utils/alert';
 import { WEB_SIDEBAR_MIN_WIDTH } from '../../lib/components/web/WebSidebarShell';
 import type { Profile, ServiceCategory } from '../../types/database.types';
@@ -33,7 +36,6 @@ function HiringSections({ userId }: { userId: string }) {
   const { data: pendingHires } = usePendingHires(userId);
   const { data: employees } = useMyEmployees(userId);
   const respondToHire = useRespondToHire();
-  const endEmployment = useEndEmployment();
   const leaveRequests = useLeaveRequests(userId);
   const decideLeave = useDecideLeaveRequest();
 
@@ -53,22 +55,14 @@ function HiringSections({ userId }: { userId: string }) {
     }
   }
 
-  async function handleRemove(id: string, name: string) {
-    showAlert('Remove employee?', `${name} will go back to being an outsource technician.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await endEmployment.end(id);
-          } catch (err) {
-            showAlert('Could not remove', getErrorMessage(err));
-          }
-        },
-      },
-    ]);
-  }
+  const { data: jobs } = useTeamJobs(userId, employees.map((e) => e.profile.id));
+  const locations = useTeamLocations(userId);
+  const now = useTick();
+  const members = useMemo(
+    () => sortMembers(employees.map((e) => buildMember(e.employment, e.profile, jobs, locations.get(e.profile.id), now))),
+    [employees, jobs, locations, now]
+  );
+  const attention = members.reduce((n, m) => n + m.attention.length, 0);
 
   return (
     <>
@@ -146,34 +140,59 @@ function HiringSections({ userId }: { userId: string }) {
         </>
       )}
 
-      {employees.length > 0 && (
-        <>
-          <View className="mb-3 mt-3 flex-row items-center justify-between">
-            <Text className="text-[15px] font-bold text-gray-900">My Technical Employees</Text>
-            <Pressable onPress={() => router.push('/(reseller)/team-activity' as any)} hitSlop={8}>
-              <Text className="text-xs font-semibold text-blue-600">Track activity →</Text>
-            </Pressable>
+      {members.length > 0 && (
+        <Pressable
+          onPress={() => router.push('/(reseller)/employees' as any)}
+          accessibilityRole="button"
+          accessibilityLabel="Open team"
+          className="mb-2.5 mt-3 rounded-2xl border border-gray-200 bg-white p-4 active:bg-gray-50"
+          style={{ gap: 12 }}
+        >
+          <View className="flex-row items-center justify-between">
+            <Text className="text-[15px] font-bold text-gray-900">My team</Text>
+            {attention > 0 && (
+              <View className="rounded-full bg-red-50 px-2.5 py-0.5">
+                <Text className="text-[11px] font-bold text-red-600">{attention} need attention</Text>
+              </View>
+            )}
           </View>
-          {employees.map(({ employment, profile }) => (
-            <View
-              key={employment.id}
-              className="mb-2.5 flex-row items-center gap-3 rounded-2xl border border-gray-200 bg-white p-3.5"
-            >
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-emerald-600">
-                <Text className="text-xs font-bold text-white">{initialsOf(profile.full_name)}</Text>
-              </View>
-              <View className="flex-1">
-                <Text className="text-[13.5px] font-bold text-gray-900">{profile.full_name ?? 'Technician'}</Text>
-                <Text className="mt-0.5 text-[11.5px] text-gray-400">
-                  On duty {employment.work_start_time?.slice(0, 5)}–{employment.work_end_time?.slice(0, 5)}
-                </Text>
-              </View>
-              <Pressable onPress={() => handleRemove(employment.id, profile.full_name ?? 'This technician')} hitSlop={8}>
-                <Text className="text-xs font-semibold text-red-600">Remove</Text>
-              </Pressable>
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row">
+              {members.slice(0, 5).map((m, i) => (
+                <View key={m.employment.id} style={{ marginLeft: i === 0 ? 0 : -10 }}>
+                  <View className="rounded-full border-2 border-white">
+                    <PersonAvatar name={m.profile.full_name} photoUrl={m.profile.avatar_url} size={38} bg={m.profile.avatar_url ? 'bg-blue-600' : 'bg-gray-500'} />
+                  </View>
+                  <View
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      bottom: 0,
+                      width: 12,
+                      height: 12,
+                      borderRadius: 6,
+                      borderWidth: 2,
+                      borderColor: '#FFFFFF',
+                      backgroundColor: m.state === 'working' ? '#2563EB' : m.state === 'offer' ? '#D97706' : m.state === 'free' ? '#15803D' : '#9CA3AF',
+                    }}
+                  />
+                </View>
+              ))}
+              {members.length > 5 && (
+                <View className="ml-[-10px] h-[38px] w-[38px] items-center justify-center rounded-full border-2 border-white bg-gray-100">
+                  <Text className="text-xs font-bold text-gray-600">+{members.length - 5}</Text>
+                </View>
+              )}
             </View>
-          ))}
-        </>
+            <Text className="text-[13px] text-gray-600">
+              {members.filter((m) => m.state === 'working').length} working · {members.filter((m) => m.state === 'free').length} free
+            </Text>
+          </View>
+          <View className="h-11 flex-row items-center justify-center rounded-xl bg-blue-600" style={{ gap: 6 }}>
+            <Text className="text-[14px] font-bold text-white">Open team</Text>
+            <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+          </View>
+        </Pressable>
       )}
     </>
   );

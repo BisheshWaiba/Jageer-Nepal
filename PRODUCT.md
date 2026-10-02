@@ -34,6 +34,11 @@ The differentiator is the **reseller/business layer**, not the client-facing boo
 - Categories are a real, curated set of ~35 IT and home-technician services (Website & App Design, Cybersecurity, Cloud Solutions, CCTV, Computer/Laptop Repair, AC/appliance/electrical repair, door locks, WiFi/networking, solar, plumbing, etc.), each with a custom illustrated icon.
 - Payments: cash (marked paid manually by the reseller) or online via Fonepay QR.
 
+## Team Management (reseller ↔ technician employment)
+
+- A technician can be employed by a reseller. The reseller tracks their employees: jobs, assigned and accepted times, time taken, job progress, and live location (the technician shares location via `useShareLiveLocation`). Surfaces: reseller Team Activity, Employees, and per-technician work history.
+- Leaving is two-sided: a technician requests to leave (optional reason) and the employment ends only when the employer approves; the employer can reject. The employer gets a popup and a dashboard card, and the technician is told the outcome. This is enforced in the database guard trigger (migration 0081), not only in the UI.
+
 ## Capabilities and Constraints
 
 - Tech stack: Expo (SDK 56) / React Native 0.85, expo-router (file-based routing, per-role route groups), NativeWind (Tailwind for RN), Zustand for client state, @tanstack/react-query + a thin Supabase hook layer for data.
@@ -45,7 +50,7 @@ The differentiator is the **reseller/business layer**, not the client-facing boo
 ## Evidence on Hand
 
 - Real brand assets exist: `assets/jageer-logo.png` (3D figurine logo mark) and a full illustrated category-icon set under `assets/categories/`.
-- No customer testimonials, press, case studies, or usage numbers are on hand — do not fabricate any for a profile-tab surface.
+- No customer testimonials, press, case studies, or usage numbers are on hand — do not fabricate any on any surface.
 
 ## Product Principles
 
