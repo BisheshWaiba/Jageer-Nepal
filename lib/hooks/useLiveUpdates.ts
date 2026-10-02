@@ -2,10 +2,28 @@
 import { useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { showAlert } from '../utils/alert';
 
 // Foreground checks closer together than this are skipped - coming back to
 // the app twice in a minute shouldn't hit the update server twice.
 const MIN_CHECK_GAP_MS = 60_000;
+
+const LAST_ANNOUNCED_KEY = 'last-announced-update-id';
+
+// Once per downloaded update, say so - it is why the app just restarted by
+// itself. A launch from the APK's own bundle (fresh install, or a rollback to
+// it) stays silent.
+async function announceUpdate() {
+  if (Updates.isEmbeddedLaunch || !Updates.updateId) return;
+  try {
+    if ((await AsyncStorage.getItem(LAST_ANNOUNCED_KEY)) === Updates.updateId) return;
+    await AsyncStorage.setItem(LAST_ANNOUNCED_KEY, Updates.updateId);
+    showAlert('Updated', 'Jageer was updated to the latest version.');
+  } catch {
+    // storage unavailable - skip the notice
+  }
+}
 
 /**
  * Keeps an installed build current without a rebuild: on launch and every
@@ -45,6 +63,7 @@ export function useLiveUpdates() {
       }
     };
 
+    announceUpdate();
     checkAndApply();
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') checkAndApply();

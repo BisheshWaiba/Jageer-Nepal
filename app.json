@@ -79,7 +79,7 @@
       }
     },
     "owner": "ai-biztech-nepal",
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "2.0.0",
     "updates": {
       "url": "https://u.expo.dev/55d39a89-72c8-4ffa-aec8-c0423c67443e",
       "requestHeaders": {
