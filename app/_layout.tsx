@@ -8,6 +8,7 @@ import { QueryProvider } from '../lib/providers/QueryProvider';
 import { useAuthListener, useAuthStore } from '../lib/hooks/useAuth';
 import { useBiometricLockBootstrap, useBiometricLockStore } from '../lib/hooks/useBiometricLock';
 import { useContactsSyncBootstrap } from '../lib/hooks/useContactsSyncBootstrap';
+import { useLiveUpdates } from '../lib/hooks/useLiveUpdates';
 import { BiometricLockScreen } from '../lib/components/BiometricLockScreen';
 import { FloatingAssistantChat } from '../lib/components/FloatingAssistantChat';
 import { ClientAssistantChat } from '../lib/components/ClientAssistantChat';
@@ -128,6 +129,8 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  useLiveUpdates();
+
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
