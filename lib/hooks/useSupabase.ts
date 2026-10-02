@@ -175,14 +175,19 @@ export function useSupabaseDelete<T extends TableName>(table: T) {
  * the matching React Query cache whenever a row changes. Use inside a
  * useEffect in screens that need live updates (e.g. client issue tracking).
  *
- * `channelKey` keeps two listeners on the same table+filter apart: supabase
- * hands back the existing channel for a topic it already has, so a second
- * subscriber with the same topic would share (and on unmount, tear down)
- * the first one's channel.
+ * Every call gets its own channel. supabase hands back the existing channel
+ * for a topic it already has, and adding a listener to an already-subscribed
+ * channel throws - which, from inside an effect, blanks the whole app. So two
+ * components subscribing to the same table+filter (e.g. a layout's notice and
+ * a screen both calling useLeaveRequests) must never share a topic. The
+ * counter guarantees that; `channelKey` is kept only to make the topic
+ * readable in the realtime logs.
  */
+let channelSeq = 0;
+
 export function subscribeToTable(table: TableName, onChange: () => void, filter?: string, channelKey?: string) {
   const channel = supabase
-    .channel(`realtime:${table}:${filter ?? 'all'}${channelKey ? `:${channelKey}` : ''}`)
+    .channel(`realtime:${table}:${filter ?? 'all'}${channelKey ? `:${channelKey}` : ''}:${++channelSeq}`)
     .on('postgres_changes', { event: '*', schema: 'public', table, filter }, onChange)
     .subscribe();
 
