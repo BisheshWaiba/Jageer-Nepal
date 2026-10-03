@@ -1,5 +1,5 @@
 // lib/components/web/WebSidebarShell.tsx
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, ScrollView } from 'react-native';
 import { router, usePathname, useGlobalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../hooks/useAuth';
@@ -114,11 +114,12 @@ export function WebSidebarShell({
           backgroundColor: '#fff',
           borderRightWidth: 1,
           borderRightColor: '#E5E7EB',
-          paddingVertical: 20,
+          paddingTop: 20,
+          paddingBottom: 14,
           paddingHorizontal: 14,
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, marginBottom: 28 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, marginBottom: 20 }}>
           <View
             style={{
               width: 32,
@@ -134,7 +135,15 @@ export function WebSidebarShell({
           <Text style={{ fontSize: 15, fontWeight: '800', color: '#111827' }}>Jageer Nepal</Text>
         </View>
 
-        <View style={{ gap: 2 }}>
+        {/* The nav list scrolls on its own (minHeight: 0 lets a flex child
+            shrink below its content), so a long open submenu like Finance's
+            can never push the account block below the fold - it stays
+            pinned at the bottom of the panel instead. */}
+        <ScrollView
+          style={{ flex: 1, minHeight: 0 }}
+          contentContainerStyle={{ gap: 2 }}
+          showsVerticalScrollIndicator={false}
+        >
           {items.map((item) => {
             const active = isActive(item.href);
             // A parent with children (e.g. Finance) is "active" only by its
@@ -205,9 +214,7 @@ export function WebSidebarShell({
               </View>
             );
           })}
-        </View>
-
-        <View style={{ flex: 1 }} />
+        </ScrollView>
 
         <Pressable
           onPress={profileHref ? () => router.push(profileHref as any) : undefined}
@@ -217,6 +224,7 @@ export function WebSidebarShell({
             flexDirection: 'row',
             alignItems: 'center',
             gap: 10,
+            marginTop: 8,
             paddingTop: 12,
             paddingHorizontal: 8,
             borderTopWidth: 1,
