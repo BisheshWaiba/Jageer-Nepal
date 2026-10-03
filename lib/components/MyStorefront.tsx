@@ -1,12 +1,13 @@
 // lib/components/MyStorefront.tsx
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, Image, TextInput, Switch } from 'react-native';
+import { View, Text, Pressable, Image, TextInput, Switch, Platform, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuthStore } from '../hooks/useAuth';
 import { useSupabaseQuery, useSupabaseUpdate } from '../hooks/useSupabase';
 import { SearchBar } from './SearchBar';
 import { SearchFilterSheet } from './SearchFilterSheet';
+import { WEB_SIDEBAR_MIN_WIDTH } from './web/WebSidebarShell';
 import { ShopOverviewSection } from './ShopOverviewSection';
 import { filterBySearch } from '../utils/search';
 import { decimalInput } from '../utils/number';
@@ -106,7 +107,14 @@ function ProductThumbnail({ item }: { item: Product }) {
   );
 }
 
-function StorefrontCard({ item, basePath }: { item: Product; basePath: string }) {
+// A wide web grid wants cards about this wide, so a bigger screen shows more
+// of them per row instead of a few huge ones.
+const WIDE_CARD_WIDTH = 220;
+const WIDE_GRID_GAP = 16;
+
+/** `fill` makes the card take its whole cell instead of the phone layout's
+ * fixed 48% (two to a row) - used by the wide web grid below. */
+function StorefrontCard({ item, basePath, fill }: { item: Product; basePath: string; fill?: boolean }) {
   const updateProduct = useSupabaseUpdate('products');
   const isAvailable = item.is_listed ?? true;
   const hasPrice = Number(item.price) > 0;
@@ -140,7 +148,7 @@ function StorefrontCard({ item, basePath }: { item: Product; basePath: string })
       : 'border-gray-200 bg-white';
 
   return (
-    <View className={`mb-4 w-[48%] rounded-xl border p-3 ${cardTone} ${faded ? 'opacity-60' : ''}`}>
+    <View className={`mb-4 ${fill ? 'w-full' : 'w-[48%]'} rounded-xl border p-3 ${cardTone} ${faded ? 'opacity-60' : ''}`}>
       <Pressable
         onPress={() => detailHref && router.push(detailHref)}
         className="mb-2 aspect-square items-center justify-center overflow-hidden rounded-lg bg-gray-100"
@@ -203,6 +211,14 @@ export function MyStorefront({
   const [category, setCategory] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Wide web: as many cards per row as fit at WIDE_CARD_WIDTH, measured from
+  // the grid itself so it follows whatever width the page column ends up
+  // with. A phone (or a phone browser) keeps the plain two-per-row grid.
+  const { width: windowWidth } = useWindowDimensions();
+  const [gridWidth, setGridWidth] = useState(0);
+  const wideGrid = Platform.OS === 'web' && windowWidth >= WEB_SIDEBAR_MIN_WIDTH;
+  const columns = Math.min(8, Math.max(2, Math.floor(gridWidth / (WIDE_CARD_WIDTH + WIDE_GRID_GAP))));
 
   const { data: products, isLoading } = useSupabaseQuery('products', {
     filters: { seller_id: userId ?? '', seller_role: sellerRole },
@@ -302,10 +318,22 @@ export function MyStorefront({
       {isLoading && <Text className="text-gray-500">Loading…</Text>}
       {!isLoading && filtered.length === 0 && <Text className="text-gray-500">No products match your search.</Text>}
 
-      <View className="flex-row flex-wrap justify-between">
-        {filtered.map((item) => (
-          <StorefrontCard key={item.id} item={item} basePath={basePath} />
-        ))}
+      <View
+        className={wideGrid ? 'flex-row flex-wrap' : 'flex-row flex-wrap justify-between'}
+        // Each wide cell pads half the gap on both sides; this pulls the
+        // outer edges back out so the grid still lines up with the page.
+        style={wideGrid ? { marginHorizontal: -WIDE_GRID_GAP / 2 } : undefined}
+        onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}
+      >
+        {filtered.map((item) =>
+          wideGrid ? (
+            <View key={item.id} style={{ width: `${100 / columns}%`, paddingHorizontal: WIDE_GRID_GAP / 2 }}>
+              <StorefrontCard item={item} basePath={basePath} fill />
+            </View>
+          ) : (
+            <StorefrontCard key={item.id} item={item} basePath={basePath} />
+          )
+        )}
       </View>
     </>
   );
