@@ -1,11 +1,11 @@
 // lib/components/finance/BankAccountsScreen.tsx
 import { useState } from 'react';
 import { View, Text, Pressable, TextInput, ScrollView } from 'react-native';
-import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../hooks/useAuth';
 import { useBankAccounts, type BankAccountDetails } from '../../hooks/useBankAccounts';
 import { showAlert, getErrorMessage } from '../../utils/alert';
+import { ToolbarButton, useBarActions, useBookLayout } from './BookKit';
 import type { BankAccount } from '../../../types/database.types';
 
 const EMPTY_DETAILS: BankAccountDetails = { name: '', bank_name: null, account_number: null, account_holder_name: null, address: null };
@@ -137,28 +137,29 @@ export function BankAccountsScreen() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // The name, the back button (phones) and "Add account" live in the top bar.
+  const layout = useBookLayout();
+  useBarActions(
+    {
+      wide: layout.wide,
+      right: showAdd
+        ? undefined
+        : () => (
+            <ToolbarButton
+              icon="add"
+              label={layout.wide ? "Add account" : "Add"}
+              onPress={() => {
+                setEditingId(null);
+                setShowAdd(true);
+              }}
+            />
+          ),
+    },
+    [showAdd]
+  );
+
   return (
     <ScrollView className="flex-1 bg-gray-50 px-6 pt-4" contentContainerStyle={{ paddingBottom: 40 }}>
-      <View className="mb-4 flex-row items-center justify-between">
-        <View className="flex-row items-center gap-2">
-          <Pressable onPress={() => router.back()} hitSlop={8} className="p-1">
-            <Ionicons name="chevron-back" size={20} color="#374151" />
-          </Pressable>
-          <Text className="text-base font-bold text-gray-900">Bank Accounts</Text>
-        </View>
-        {!showAdd && (
-          <Pressable
-            onPress={() => {
-              setEditingId(null);
-              setShowAdd(true);
-            }}
-            className="h-9 w-9 items-center justify-center rounded-xl bg-blue-600"
-          >
-            <Ionicons name="add" size={20} color="white" />
-          </Pressable>
-        )}
-      </View>
-
       <Text className="mb-4 text-xs text-gray-400">
         Add every bank account your business uses — each one then shows up as an option (alongside Cash) when recording
         an Expense, and its balance shows up under Available Balance. Fill in the full detail so it's a real record,

@@ -6,6 +6,7 @@ import { TabIcon } from '../../lib/components/TabIcon';
 import { PortalHeaderBar } from '../../lib/components/PortalHeaderBar';
 import { ROLE_ACCENT } from '../../lib/constants/roleColors';
 import { WebSidebarShell, WEB_SIDEBAR_MIN_WIDTH, type WebNavItem } from '../../lib/components/web/WebSidebarShell';
+import { FINANCE_WIDE_ROUTES } from '../../lib/components/finance/FinanceDashboardScreen';
 
 const NAV_ITEMS: WebNavItem[] = [
   { href: '/(wholesaler)/market', label: 'Products', icon: 'bag' },
@@ -21,7 +22,14 @@ export default function WholesalerLayout() {
     <Tabs
       backBehavior="history"
       screenOptions={{
-        header: ({ options }) => <PortalHeaderBar title={options.title} />,
+        header: ({ options }) => (
+          <PortalHeaderBar
+            title={options.title}
+            hideAccount={isWideWeb}
+            left={options.headerLeft?.({ canGoBack: false })}
+            right={options.headerRight?.({ canGoBack: false })}
+          />
+        ),
         tabBarActiveTintColor: ROLE_ACCENT.wholesaler,
         ...(isWideWeb ? { tabBarStyle: { display: 'none' } } : null),
       }}
@@ -57,12 +65,12 @@ export default function WholesalerLayout() {
       <Tabs.Screen name="order/[id]" options={{ href: null, title: 'Order Detail' }} />
       <Tabs.Screen name="customers" options={{ href: null, title: 'Ledger' }} />
       <Tabs.Screen name="customer/[id]" options={{ href: null, title: 'Customer' }} />
-      <Tabs.Screen name="transactions" options={{ href: null, title: 'Transactions' }} />
+      <Tabs.Screen name="transactions" options={{ href: null, title: 'Statement' }} />
       <Tabs.Screen name="quick-payment" options={{ href: null, title: 'Quick Payment' }} />
       <Tabs.Screen name="received" options={{ href: null, title: 'Total Received' }} />
       <Tabs.Screen name="paid" options={{ href: null, title: 'Total Paid' }} />
-      <Tabs.Screen name="to-receive" options={{ href: null, title: 'To Receive' }} />
-      <Tabs.Screen name="to-give" options={{ href: null, title: 'To Give' }} />
+      <Tabs.Screen name="to-receive" options={{ href: null, title: 'Receivable' }} />
+      <Tabs.Screen name="to-give" options={{ href: null, title: 'Payable' }} />
       <Tabs.Screen name="bank-accounts" options={{ href: null, title: 'Bank Accounts' }} />
       <Tabs.Screen name="bank-balances" options={{ href: null, title: 'Available Balance' }} />
       <Tabs.Screen name="import-statement" options={{ href: null, title: 'Import Statement' }} />
@@ -75,7 +83,7 @@ export default function WholesalerLayout() {
   return (
     <RoleGuard allow={['wholesaler']}>
       {isWideWeb ? (
-        <WebSidebarShell items={NAV_ITEMS} roleLabel="Wholesaler">
+        <WebSidebarShell items={NAV_ITEMS} roleLabel="Wholesaler" profileHref="/(wholesaler)/profile" wideRoutes={FINANCE_WIDE_ROUTES}>
           {tabs}
         </WebSidebarShell>
       ) : (

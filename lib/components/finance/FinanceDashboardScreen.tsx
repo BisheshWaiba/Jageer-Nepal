@@ -34,6 +34,26 @@ function dayTime(date: string): number {
   return new Date(date).getTime();
 }
 
+/** The Finance pages that use the wider content column on the web (see
+ * WebSidebarShell's `wideRoutes`) - tables and ledgers that use the room. */
+export const FINANCE_WIDE_ROUTES = [
+  '/finance',
+  '/daybook',
+  '/transactions',
+  '/customers',
+  '/customer',
+  '/quick-payment',
+  '/received',
+  '/paid',
+  '/to-receive',
+  '/to-give',
+  '/bank-accounts',
+  '/bank-balances',
+  '/import-statement',
+  '/inventory',
+  '/report',
+];
+
 export function shortcuts(basePath: string): {
   key: string;
   label: string;

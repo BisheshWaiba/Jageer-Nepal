@@ -14,7 +14,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const METRIC_META: Record<TrendMetric, { label: string; color: string }> = {
   all: { label: 'Available Balance', color: '#2563EB' },
   sale: { label: 'Sales', color: '#059669' },
-  purchase: { label: 'Purchase', color: '#2563eb' },
+  purchase: { label: 'Purchase', color: '#dc2626' },
   expense: { label: 'Expense', color: '#dc2626' },
 };
 

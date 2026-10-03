@@ -1,4 +1,5 @@
 // lib/components/PortalHeaderBar.tsx
+import type { ReactNode } from 'react';
 import { View, Text, Image, Pressable, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -75,12 +76,20 @@ export function PortalHeaderBar({
   showAvailabilityToggle,
   showInbox,
   backTo,
+  hideAccount,
+  left,
+  right,
 }: {
   title?: string;
   showAvailabilityToggle?: boolean;
   /** Technician only: a button to the Inbox, with a count of what is waiting. */
   showInbox?: boolean;
   backTo?: string;
+  /** Drops the account avatar from the right - where the layout already shows the account elsewhere (the web sidebar). */
+  hideAccount?: boolean;
+  /** A screen's own controls (see useScreenHeader): before the title, and between it and the avatar. */
+  left?: ReactNode;
+  right?: ReactNode;
 }) {
   const profile = useAuthStore((state) => state.profile);
   const profileRoute = profile?.role ? PROFILE_ROUTE[profile.role] : undefined;
@@ -102,20 +111,28 @@ export function PortalHeaderBar({
           <Ionicons name="chevron-back" size={24} color="#111827" />
         </Pressable>
       )}
+      {left}
       <Text className="flex-1 text-xl font-bold text-gray-900" numberOfLines={1}>
         {title ?? ''}
       </Text>
       {showAvailabilityToggle && profile?.role === 'technician' && <AvailabilityToggle />}
       {showInbox && profile?.role === 'technician' && <InboxButton />}
-      <Pressable onPress={() => profileRoute && router.push(profileRoute as never)} hitSlop={8}>
-        <View className="h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-orange-100">
-          {profile?.avatar_url ? (
-            <Image source={{ uri: profile.avatar_url }} className="h-full w-full" resizeMode="cover" />
-          ) : (
-            <Text className="text-xs font-bold text-orange-700">{initialsOf(profile?.full_name)}</Text>
-          )}
+      {!!right && (
+        <View className="flex-row items-center" style={{ gap: 8 }}>
+          {right}
         </View>
-      </Pressable>
+      )}
+      {!hideAccount && (
+        <Pressable onPress={() => profileRoute && router.push(profileRoute as never)} hitSlop={8}>
+          <View className="h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-orange-100">
+            {profile?.avatar_url ? (
+              <Image source={{ uri: profile.avatar_url }} className="h-full w-full" resizeMode="cover" />
+            ) : (
+              <Text className="text-xs font-bold text-orange-700">{initialsOf(profile?.full_name)}</Text>
+            )}
+          </View>
+        </Pressable>
+      )}
     </View>
   );
 }

@@ -6,12 +6,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../hooks/useAuth';
 import { useSupabaseQuery, useSupabaseUpdate, useSupabaseDelete } from '../../hooks/useSupabase';
-import { dateLabels, useCalendarMode } from '../../hooks/useCalendarMode';
 import { useBankAccounts } from '../../hooks/useBankAccounts';
 import { DateField } from '../DateTimeFields';
 import { FormSection } from './FormSection';
 import { BankAccountPickerModal } from './BankAccountPickerModal';
 import { useWideDetail } from '../detail/DetailLayout';
+import { dateLabels, useCalendarMode } from '../../hooks/useCalendarMode';
+import { useBookToolbar } from './BookKit';
+import { MONEY } from './moneyColors';
 import { showAlert, getErrorMessage } from '../../utils/alert';
 
 type Kind = 'opening' | 'received' | 'paid' | 'expense' | 'sale' | 'purchase' | 'transfer';
@@ -74,8 +76,8 @@ const KIND: Record<Kind, { label: string; color: string; bg: string }> = {
   received: { label: 'Cash in', color: '#047857', bg: '#ECFDF5' },
   paid: { label: 'Paid out', color: '#B91C1C', bg: '#FEF2F2' },
   expense: { label: 'Expense', color: '#B91C1C', bg: '#FEF2F2' },
-  sale: { label: 'Sale bill', color: '#1D4ED8', bg: '#EFF6FF' },
-  purchase: { label: 'Purchase bill', color: '#6D28D9', bg: '#F5F3FF' },
+  sale: { label: 'Sale bill', color: MONEY.in.text, bg: MONEY.in.bg },
+  purchase: { label: 'Purchase bill', color: MONEY.out.text, bg: MONEY.out.bg },
   transfer: { label: 'Transfer', color: '#4338CA', bg: '#EEF2FF' },
 };
 
@@ -108,7 +110,7 @@ function amountText(n: number | null | undefined): string {
 // columns need about this much window to fit beside the sidebar - narrower
 // than that and the table falls back to the compact four-column form rather
 // than cutting off Cash in / Cash out / Balance.
-const COL = { time: 58, type: 104, invoice: 84, discount: 76, amount: 92, cashIn: 96, cashOut: 96, balance: 104 };
+const COL = { time: 58, type: 104, invoice: 96, discount: 76, amount: 104, cashIn: 100, cashOut: 100, balance: 112 };
 const FULL_TABLE_MIN_WINDOW = 1280;
 
 function TypePill({ kind }: { kind: Kind }) {
@@ -146,6 +148,7 @@ function DayBookTable({ rows, opening, totalIn, totalOut, closing, full, onOpenR
     <Text
       className={`${cell} text-right text-[12.5px] ${bold ? 'font-bold' : 'font-medium'}`}
       style={[style, { color: value == null ? '#9CA3AF' : color }]}
+      numberOfLines={1}
     >
       {value == null ? '—' : money(value)}
     </Text>
@@ -611,7 +614,7 @@ const NEW_ENTRY_KINDS: { key: string; label: string; icon: ComponentProps<typeof
   { key: 'received', label: 'Received', icon: 'arrow-down-circle', color: '#059669', path: '/quick-payment?type=in' },
   { key: 'payment-out', label: 'Payment Out', icon: 'arrow-up-circle', color: '#DC2626', path: '/quick-payment?type=out' },
   { key: 'sale', label: 'Sale', icon: 'trending-up', color: '#059669', path: '/transactions?type=sale&add=1' },
-  { key: 'purchase', label: 'Purchase', icon: 'cart', color: '#2563EB', path: '/transactions?type=purchase&add=1' },
+  { key: 'purchase', label: 'Purchase', icon: 'cart', color: '#DC2626', path: '/transactions?type=purchase&add=1' },
   { key: 'expense', label: 'Expense', icon: 'receipt', color: '#DC2626', path: '/transactions?type=expense&add=1' },
 ];
 
@@ -622,11 +625,11 @@ function NewEntryMenu({ basePath }: { basePath: string }) {
     <>
       <Pressable
         onPress={() => setOpen(true)}
-        className="h-10 flex-row items-center justify-center gap-1.5 rounded-lg px-3.5"
+        className="h-9 flex-row items-center justify-center gap-1.5 rounded-lg px-3.5"
         style={{ backgroundColor: '#1D4ED8' }}
       >
-        <Ionicons name="add" size={17} color="#FFFFFF" />
-        <Text className="text-sm font-semibold text-white">New entry</Text>
+        <Ionicons name="add" size={16} color="#FFFFFF" />
+        <Text className="text-[13px] font-semibold text-white">New entry</Text>
         <Ionicons name="chevron-down" size={14} color="#FFFFFF" />
       </Pressable>
 
@@ -679,7 +682,6 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
  * Available Balance (useAccountBalances), so the two always agree. */
 export function DayBookScreen({ basePath }: { basePath: string }) {
   const userId = useAuthStore((state) => state.session?.user.id);
-  const businessName = useAuthStore((state) => state.profile?.business_name);
   const wide = useWideDetail();
   const { width: windowWidth } = useWindowDimensions();
   const fullTable = wide && windowWidth >= FULL_TABLE_MIN_WINDOW;
@@ -921,56 +923,71 @@ export function DayBookScreen({ basePath }: { basePath: string }) {
 
   const [mainDate, otherDate] = dateLabels(day, calendarMode);
 
-  const header = (
-    <View className="rounded-2xl border border-gray-200 bg-white px-4 py-3.5">
-      <View className={wide ? 'flex-row items-center' : ''} style={{ gap: 12 }}>
-        <View className={wide ? 'flex-1' : 'items-center'}>
-          {!!businessName && (
-            <Text className="text-[11px] font-bold uppercase tracking-wide text-gray-400">{businessName}</Text>
-          )}
-          <Text className="text-[17px] font-extrabold text-gray-900">Day Book · {mainDate}</Text>
-          <Text className="text-xs text-gray-500">{otherDate}</Text>
-        </View>
-        <View className="flex-row items-center" style={{ gap: 8 }}>
+  // The day picker (previous / date / next / Today) and New entry live in the top
+  // bar on a wide screen - the date box already shows the day in both calendars -
+  // and as a plain row above the tiles on a narrow one.
+  const toolbar = useBookToolbar(
+    {
+      wide,
+      right: (inBar) => (
+        <>
           <Pressable
             onPress={() => setDay((d) => shiftDay(d, -1))}
             accessibilityLabel="Previous day"
-            className="h-10 w-10 items-center justify-center rounded-lg border border-gray-200"
+            className="h-9 w-9 items-center justify-center rounded-lg border border-gray-200"
           >
             <Ionicons name="chevron-back" size={18} color="#374151" />
           </Pressable>
-          <View style={wide ? { width: 200 } : { flex: 1 }}>
-            <DateField value={day} onChange={(v) => v && setDay(v)} />
+          <View style={inBar ? { width: 200 } : { flexGrow: 1, minWidth: 160 }}>
+            <DateField
+              value={day}
+              onChange={(v) => v && setDay(v)}
+              renderTrigger={(open) => (
+                <Pressable
+                  onPress={open}
+                  accessibilityLabel="Pick a date"
+                  className="h-9 justify-center rounded-lg border border-gray-300 bg-white px-3"
+                >
+                  <Text className="text-[12px] font-bold leading-[14px] text-gray-900" numberOfLines={1}>
+                    {mainDate}
+                  </Text>
+                  <Text className="text-[10px] leading-[12px] text-gray-500" numberOfLines={1}>
+                    {otherDate}
+                  </Text>
+                </Pressable>
+              )}
+            />
           </View>
           <Pressable
             onPress={() => setDay((d) => shiftDay(d, 1))}
             disabled={day >= today}
             accessibilityLabel="Next day"
-            className="h-10 w-10 items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30"
+            className="h-9 w-9 items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30"
           >
             <Ionicons name="chevron-forward" size={18} color="#374151" />
           </Pressable>
           {day !== today && (
             <Pressable
               onPress={() => setDay(today)}
-              className="h-10 items-center justify-center rounded-lg px-3.5"
+              className="h-9 items-center justify-center rounded-lg px-3.5"
               style={{ backgroundColor: '#EFF6FF' }}
             >
-              <Text className="text-sm font-semibold text-blue-700">Today</Text>
+              <Text className="text-[13px] font-semibold text-blue-700">Today</Text>
             </Pressable>
           )}
           <NewEntryMenu basePath={basePath} />
-        </View>
-      </View>
-    </View>
+        </>
+      ),
+    },
+    [day, today, basePath, mainDate, otherDate]
   );
 
   return (
     <ScrollView
       className="flex-1 bg-gray-50"
-      contentContainerStyle={{ padding: wide ? 32 : 12, paddingTop: wide ? 24 : 12, paddingBottom: 48, gap: 14 }}
+      contentContainerStyle={{ padding: wide ? 24 : 12, paddingTop: wide ? 24 : 12, paddingBottom: 48, gap: 14 }}
     >
-      {header}
+      {toolbar}
 
       {isLoading && !transactions ? (
         <Text className="px-1 text-sm text-gray-500">Loading…</Text>
@@ -981,8 +998,8 @@ export function DayBookScreen({ basePath }: { basePath: string }) {
             <Stat label="Cash in" value={book.totalIn} color="#047857" />
             <Stat label="Cash out" value={book.totalOut} color="#B91C1C" />
             <Stat label="Closing" value={book.closing} color={book.closing >= 0 ? '#2563EB' : '#DC2626'} />
-            {book.totalSales > 0 && <Stat label="Sales billed" value={book.totalSales} color="#1D4ED8" />}
-            {book.totalPurchases > 0 && <Stat label="Purchases billed" value={book.totalPurchases} color="#6D28D9" />}
+            {book.totalSales > 0 && <Stat label="Sales billed" value={book.totalSales} color={MONEY.in.text} />}
+            {book.totalPurchases > 0 && <Stat label="Purchases billed" value={book.totalPurchases} color={MONEY.out.text} />}
           </View>
 
           <DayBookTable

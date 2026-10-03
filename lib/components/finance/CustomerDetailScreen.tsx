@@ -554,7 +554,7 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
 
       {!isPureVendor && (
         <LinearGradient
-          colors={['#2563EB', '#1D4ED8']}
+          colors={balance > 0 ? (['#059669', '#047857'] as const) : balance < 0 ? (['#DC2626', '#B91C1C'] as const) : (['#2563EB', '#1D4ED8'] as const)}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={{
@@ -562,7 +562,7 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
             padding: 20,
             gap: 14,
             marginBottom: 16,
-            shadowColor: '#2563EB',
+            shadowColor: balance > 0 ? '#059669' : balance < 0 ? '#DC2626' : '#2563EB',
             shadowOpacity: 0.35,
             shadowRadius: 16,
             shadowOffset: { width: 0, height: 8 },
@@ -590,8 +590,8 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
               }}
               className="flex-row items-center justify-center gap-1.5 rounded-full bg-white py-3"
             >
-              <Ionicons name="add-circle-outline" size={16} color="#1D4ED8" />
-              <Text className="text-sm font-semibold" style={{ color: '#1D4ED8' }}>
+              <Ionicons name="add-circle-outline" size={16} color={balance > 0 ? '#047857' : balance < 0 ? '#B91C1C' : '#1D4ED8'} />
+              <Text className="text-sm font-semibold" style={{ color: balance > 0 ? '#047857' : balance < 0 ? '#B91C1C' : '#1D4ED8' }}>
                 Add Ledger Entry
               </Text>
             </Pressable>
@@ -660,8 +660,8 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
               className="mb-2.5 flex-row items-center gap-3 rounded-2xl bg-white p-3.5"
               style={ROW_SHADOW}
             >
-              <View className="h-8 w-8 items-center justify-center rounded-full bg-blue-50">
-                <Ionicons name="receipt-outline" size={14} color="#2563EB" />
+              <View className={`h-8 w-8 items-center justify-center rounded-full ${t.type === 'sale' ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                <Ionicons name="receipt-outline" size={14} color={t.type === 'sale' ? '#059669' : '#DC2626'} />
               </View>
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-gray-900">{TX_TYPE_LABEL[t.type]}</Text>
@@ -669,7 +669,9 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
                   {toBsHistoryLabel(t.bill_date ?? t.created_at)}
                 </Text>
               </View>
-              <Text className="text-sm font-extrabold text-red-600">NPR {t.amount.toLocaleString()}</Text>
+              <Text className="text-sm font-extrabold" style={{ color: t.type === 'sale' ? '#059669' : '#DC2626' }}>
+                NPR {t.amount.toLocaleString()}
+              </Text>
               <Ionicons name="chevron-forward" size={14} color="#D1D5DB" style={{ marginLeft: 6 }} />
             </Pressable>
           );
@@ -688,13 +690,9 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
               style={ROW_SHADOW}
             >
               <View
-                className={`h-8 w-8 items-center justify-center rounded-full ${entry.entry_type === 'debit' ? 'bg-red-50' : 'bg-emerald-50'}`}
+                className="h-8 w-8 items-center justify-center rounded-full bg-red-50"
               >
-                <Ionicons
-                  name={entry.entry_type === 'debit' ? 'cart-outline' : 'arrow-down'}
-                  size={14}
-                  color={entry.entry_type === 'debit' ? '#DC2626' : '#059669'}
-                />
+                <Ionicons name={entry.entry_type === 'debit' ? 'cart-outline' : 'arrow-up'} size={14} color="#DC2626" />
               </View>
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-gray-900">
@@ -705,7 +703,7 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
                   {toBsHistoryLabel(entry.entry_date ?? entry.created_at)}
                 </Text>
               </View>
-              <Text className="text-sm font-extrabold" style={{ color: entry.entry_type === 'debit' ? '#DC2626' : '#059669' }}>
+              <Text className="text-sm font-extrabold" style={{ color: '#DC2626' }}>
                 NPR {entry.amount.toLocaleString()}
               </Text>
               {entry.source === 'manual' && (
@@ -738,12 +736,12 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
             style={ROW_SHADOW}
           >
             <View
-              className={`h-8 w-8 items-center justify-center rounded-full ${entry.entry_type === 'debit' ? 'bg-red-50' : 'bg-emerald-50'}`}
+              className={`h-8 w-8 items-center justify-center rounded-full ${entry.entry_type === 'debit' && entry.source === 'manual' ? 'bg-red-50' : 'bg-emerald-50'}`}
             >
               <Ionicons
                 name={entry.entry_type === 'debit' ? 'arrow-up' : 'arrow-down'}
                 size={14}
-                color={entry.entry_type === 'debit' ? '#DC2626' : '#059669'}
+                color={entry.entry_type === 'debit' && entry.source === 'manual' ? '#DC2626' : '#059669'}
               />
             </View>
             <View className="flex-1">
@@ -753,7 +751,7 @@ function CustomerDetail({ id, basePath }: { id: string; basePath: string }) {
                 {toBsHistoryLabel(entry.entry_date ?? entry.created_at)}
               </Text>
             </View>
-            <Text className="text-sm font-extrabold" style={{ color: entry.entry_type === 'debit' ? '#DC2626' : '#059669' }}>
+            <Text className="text-sm font-extrabold" style={{ color: entry.entry_type === 'debit' && entry.source === 'manual' ? '#DC2626' : '#059669' }}>
               NPR {entry.amount.toLocaleString()}
             </Text>
             {entry.source === 'manual' && (

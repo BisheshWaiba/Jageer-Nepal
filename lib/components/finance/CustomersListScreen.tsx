@@ -9,6 +9,7 @@ import { useAuthStore } from '../../hooks/useAuth';
 import { useSupabaseInsert, useSupabaseQuery } from '../../hooks/useSupabase';
 import { supabase } from '../../supabase';
 import { SearchBar } from '../SearchBar';
+import { BookPage, BookStat, BookStats, BookTable, Pill, ToolbarButton, ToolbarSearch, money as bookMoney, useBookLayout, useBookToolbar, type BookColumn } from './BookKit';
 import { showAlert, getErrorMessage } from '../../utils/alert';
 import { isValidPhone10 } from '../../utils/phone';
 import { getLastSyncedAt, isContactsSyncEnabled, requestAndSyncPhoneContacts } from '../../utils/contactsSync';
@@ -465,6 +466,140 @@ export function CustomersListScreen({ basePath }: { basePath: string }) {
     if (!q) return merged;
     return merged.filter((r) => r.name.toLowerCase().includes(q) || (r.phone ?? '').includes(q));
   }, [merged, search]);
+
+  const layout = useBookLayout();
+
+  // Search and New party live in the top bar on a wide screen (a plain row above
+  // the tiles on a narrow one) - web only; the phone app keeps its own list below.
+  const toolbar = useBookToolbar(
+    {
+      wide: layout.wide,
+      right: (inBar) => (
+        <>
+          <ToolbarSearch value={search} onChange={setSearch} placeholder="Search by name or phone" wide={inBar} />
+          <ToolbarButton icon={showAddForm ? 'close' : 'add'} label={showAddForm ? 'Close' : 'New party'} onPress={() => setShowAddForm((v) => !v)} />
+        </>
+      ),
+    },
+    [search, showAddForm]
+  );
+
+  // Web: the same cash-book look as the Day Book - header card, stat tiles,
+  // one bordered table with totals. Phones keep the card list below.
+  if (Platform.OS === 'web') {
+    const owed = (row: MergedRow) => (row.kind === 'customer' ? Math.max(0, byParty.get(row.id)?.receivable ?? 0) : 0);
+    const owing = (row: MergedRow) => (row.kind === 'customer' ? Math.max(0, byParty.get(row.id)?.payable ?? 0) : 0);
+    const amount = (value: number, color: string) =>
+      value > 0 ? (
+        <Text className="text-[12.5px] font-bold" style={{ color }}>
+          {bookMoney(value)}
+        </Text>
+      ) : (
+        <Text className="text-[12.5px] text-gray-400">—</Text>
+      );
+    const net = (row: MergedRow) => {
+      const diff = owed(row) - owing(row);
+      if (diff === 0) return <Text className="text-[12px] font-medium text-gray-400">Settled</Text>;
+      return (
+        <Text className="text-[13px] font-bold" style={{ color: diff > 0 ? '#047857' : '#B91C1C' }}>
+          {diff < 0 ? '−' : ''}
+          {bookMoney(Math.abs(diff))}
+        </Text>
+      );
+    };
+    const party = (row: MergedRow, withPhone: boolean) => (
+      <View style={{ minWidth: 0 }}>
+        <View className="flex-row items-center" style={{ gap: 6 }}>
+          <Text className="flex-shrink text-[13px] font-semibold text-gray-900" numberOfLines={1}>
+            {row.name}
+          </Text>
+          {(row.kind === 'app' || (row.kind === 'customer' && row.isApp)) && <Pill text="APP" color="#1D4ED8" bg="#EFF6FF" />}
+        </View>
+        {(() => {
+          const sub = [withPhone ? row.phone : null, row.kind === 'customer' ? row.customer.address : null].filter(Boolean).join(' · ');
+          return sub ? (
+            <Text className="text-[11px] text-gray-400" numberOfLines={1}>
+              {sub}
+            </Text>
+          ) : null;
+        })()}
+      </View>
+    );
+
+    const columns: BookColumn<MergedRow>[] = layout.full
+      ? [
+          { key: 'party', label: 'Party', render: (row) => party(row, false) },
+          { key: 'phone', label: 'Phone', width: 130, render: (row) => <Text className="text-[12.5px] text-gray-600">{row.phone ?? '—'}</Text> },
+          { key: 'receive', label: 'To receive', width: 130, align: 'right', render: (row) => amount(owed(row), '#047857') },
+          { key: 'pay', label: 'To pay', width: 130, align: 'right', render: (row) => amount(owing(row), '#B91C1C') },
+          { key: 'net', label: 'Net balance', width: 140, align: 'right', render: (row) => net(row) },
+        ]
+      : [
+          { key: 'party', label: 'Party', render: (row) => party(row, true) },
+          { key: 'receive', label: 'To receive', width: 96, align: 'right', render: (row) => amount(owed(row), '#047857') },
+          { key: 'pay', label: 'To pay', width: 92, align: 'right', render: (row) => amount(owing(row), '#B91C1C') },
+        ];
+
+    const shownReceive = filteredMerged.reduce((s, row) => s + owed(row), 0);
+    const shownPay = filteredMerged.reduce((s, row) => s + owing(row), 0);
+    const shownNet = shownReceive - shownPay;
+
+    return (
+      <BookPage wide={layout.wide}>
+        {toolbar}
+
+        <BookStats>
+          <BookStat label="To receive" value={`NPR ${bookMoney(totalReceivable)}`} color="#047857" onPress={() => router.push(`${basePath}/to-receive` as any)} />
+          <BookStat label="To pay" value={`NPR ${bookMoney(totalPayable)}`} color="#B91C1C" onPress={() => router.push(`${basePath}/to-give` as any)} />
+          <BookStat
+            label="Net position"
+            value={`${totalReceivable - totalPayable < 0 ? '−' : ''}NPR ${bookMoney(Math.abs(totalReceivable - totalPayable))}`}
+            color={totalReceivable - totalPayable >= 0 ? '#047857' : '#B91C1C'}
+          />
+          <BookStat label="Parties" value={String(merged.length)} color="#374151" />
+        </BookStats>
+
+        {showAddForm && userId && <AddCustomerForm userId={userId} basePath={basePath} onDone={() => setShowAddForm(false)} />}
+
+        {filteredMerged.length === 0 ? (
+          <View className="items-center rounded-xl border border-gray-300 bg-white py-10">
+            <Ionicons name="people-outline" size={28} color="#D1D5DB" />
+            <Text className="mt-2 text-gray-500">{merged.length > 0 ? 'No matches.' : 'No customers yet.'}</Text>
+            <Text className="text-xs text-gray-400">Add one with New party, or they'll be saved when you record a bill for them.</Text>
+          </View>
+        ) : (
+          <BookTable
+            columns={columns}
+            rows={filteredMerged}
+            rowKey={(row) => `${row.kind}-${row.id}`}
+            onRowPress={(row) => row.kind === 'customer' && router.push(`${basePath}/customer/${row.id}` as any)}
+            footer={{
+              label: `${filteredMerged.length} ${filteredMerged.length === 1 ? 'party' : 'parties'} · Totals`,
+              cells: layout.full
+                ? {
+                    receive: <Text className="text-[13px] font-extrabold" style={{ color: '#047857' }}>{bookMoney(shownReceive)}</Text>,
+                    pay: <Text className="text-[13px] font-extrabold" style={{ color: '#B91C1C' }}>{bookMoney(shownPay)}</Text>,
+                    net: (
+                      <Text className="text-[14px] font-extrabold" style={{ color: shownNet >= 0 ? '#047857' : '#B91C1C' }}>
+                        {shownNet < 0 ? '−' : ''}
+                        {bookMoney(Math.abs(shownNet))}
+                      </Text>
+                    ),
+                  }
+                : {
+                    receive: <Text className="text-[13px] font-extrabold" style={{ color: '#047857' }}>{bookMoney(shownReceive)}</Text>,
+                    pay: <Text className="text-[13px] font-extrabold" style={{ color: '#B91C1C' }}>{bookMoney(shownPay)}</Text>,
+                  },
+            }}
+          />
+        )}
+
+        <Text className="px-1 text-[11.5px] leading-[17px] text-gray-400">
+          Tap a party to open their ledger. To receive is what they owe you; To pay is what you owe them - one person can be both, so the two are kept apart and Net balance shows where they stand overall.
+        </Text>
+      </BookPage>
+    );
+  }
 
   return (
     <View className="flex-1 bg-gray-50 px-6 pt-4">

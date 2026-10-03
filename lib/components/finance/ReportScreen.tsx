@@ -2,10 +2,10 @@
 import { useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../hooks/useAuth';
 import { useSupabaseQuery } from '../../hooks/useSupabase';
 import { useAccountBalances } from '../../hooks/useAccountBalances';
+import { useBarActions, useBookLayout } from './BookKit';
 
 type Period = 'month' | 'year' | 'all';
 
@@ -54,15 +54,12 @@ export function ReportScreen({ basePath }: { basePath: string }) {
   const grossProfit = totals.sale - totals.purchase;
   const netProfit = grossProfit - totals.expense;
 
+  // The name (and the back button on a phone) are in the top bar.
+  const layout = useBookLayout();
+  useBarActions({ wide: layout.wide }, []);
+
   return (
     <ScrollView className="flex-1 bg-gray-50 px-6 pt-4" contentContainerStyle={{ paddingBottom: 40 }}>
-      <View className="mb-4 flex-row items-center gap-2">
-        <Pressable onPress={() => router.back()} hitSlop={8} className="p-1">
-          <Ionicons name="chevron-back" size={20} color="#374151" />
-        </Pressable>
-        <Text className="text-base font-bold text-gray-900">Report</Text>
-      </View>
-
       <View className="mb-4 flex-row gap-2">
         {(['month', 'year', 'all'] as Period[]).map((p) => {
           const selected = period === p;

@@ -197,7 +197,17 @@ export function YearMonthPicker({
  * them always visibly changes the header/day layout rather than risking a
  * silent no-op. Always stores/reports the value as an AD 'YYYY-MM-DD'
  * string either way, since that's the shape every date column already uses. */
-export function DateField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function DateField({
+  value,
+  onChange,
+  renderTrigger,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  /** Replaces the default tap-to-open box with a custom control (e.g. a
+   * typeable input) - the calendar popup itself is unchanged, `open` shows it. */
+  renderTrigger?: (open: () => void) => React.ReactNode;
+}) {
   const [showPicker, setShowPicker] = useState(false);
   // The BS/AD toggle is shared app-wide (and remembered), so picking AD here
   // switches this field's label, every other date field and date headings
@@ -286,16 +296,20 @@ export function DateField({ value, onChange }: { value: string; onChange: (v: st
     <View>
       {/* Same height and placeholder style as TimeField, so the two line up
           when they sit side by side (they didn't while the date was empty). */}
-      <Pressable
-        onPress={openPicker}
-        className="justify-center rounded-lg border border-gray-300 bg-white px-3 py-1.5"
-        style={{ minHeight: FIELD_MIN_HEIGHT }}
-      >
-        <Text className={value ? 'text-xs font-bold text-gray-900' : 'text-base text-gray-400'}>
-          {value ? dateLabels(value, mode)[0] : 'Select a date'}
-        </Text>
-        {!!value && <Text className="mt-0.5 text-[10px] text-gray-500">{dateLabels(value, mode)[1]}</Text>}
-      </Pressable>
+      {renderTrigger ? (
+        renderTrigger(openPicker)
+      ) : (
+        <Pressable
+          onPress={openPicker}
+          className="justify-center rounded-lg border border-gray-300 bg-white px-3 py-1.5"
+          style={{ minHeight: FIELD_MIN_HEIGHT }}
+        >
+          <Text className={value ? 'text-xs font-bold text-gray-900' : 'text-base text-gray-400'}>
+            {value ? dateLabels(value, mode)[0] : 'Select a date'}
+          </Text>
+          {!!value && <Text className="mt-0.5 text-[10px] text-gray-500">{dateLabels(value, mode)[1]}</Text>}
+        </Pressable>
+      )}
 
       <Modal visible={showPicker} transparent animationType="fade" onRequestClose={() => setShowPicker(false)}>
         <Pressable className="flex-1 items-center justify-center bg-black/40 px-6" onPress={() => setShowPicker(false)}>

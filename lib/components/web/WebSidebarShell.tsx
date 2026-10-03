@@ -1,5 +1,4 @@
 // lib/components/web/WebSidebarShell.tsx
-import { useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { router, usePathname, useGlobalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,10 +8,10 @@ export interface WebNavItem {
   href: string;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
-  // Sub-links shown nested under this item, toggled open/closed by clicking
-  // the parent row - for a section like Finance with several destinations
-  // (Payment In, Purchase, Report, ...) that would otherwise mean going back
-  // to a dashboard and re-picking a shortcut tile every time.
+  // Sub-links shown nested under this item, always visible (no expand/
+  // collapse dropdown) - for a section like Finance with several
+  // destinations (Payment In, Purchase, Report, ...) that would otherwise
+  // mean going back to a dashboard and re-picking a shortcut tile every time.
   children?: WebNavItem[];
 }
 
@@ -32,6 +31,13 @@ function initialsOf(name: string | null | undefined) {
 // instead of stretching to the sidebar's full remaining width.
 const CONTENT_MAX_WIDTH = 1120;
 
+// Finance's book-style pages (tables, ledgers, the dashboard) fill the space
+// beside the sidebar, so the gap on their left and right is just the page's
+// own gutter on any laptop or desktop screen. The cap only matters on
+// ultra-wide monitors, where an unbounded table would stretch past readable
+// width. Only the routes a layout lists in `wideRoutes` get it.
+const WIDE_CONTENT_MAX_WIDTH = 1840;
+
 // Below this viewport width, each _layout.tsx renders plain Tabs (bottom
 // bar and all) instead of this shell - a phone browser hitting the website
 // is still "web" (Platform.OS === 'web'), but a 240px sidebar plus content
@@ -50,20 +56,24 @@ export const WEB_SIDEBAR_MIN_WIDTH = 768;
 export function WebSidebarShell({
   items,
   roleLabel,
+  profileHref,
+  wideRoutes,
   children,
 }: {
   items: WebNavItem[];
   roleLabel: string;
+  /** Where the account block at the bottom leads (the role's profile screen). */
+  profileHref?: string;
+  /** Route paths (no route group, e.g. '/daybook') whose pages use the wider content column. */
+  wideRoutes?: string[];
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const contentMaxWidth = wideRoutes?.some((r) => pathname === r || pathname.startsWith(`${r}/`))
+    ? WIDE_CONTENT_MAX_WIDTH
+    : CONTENT_MAX_WIDTH;
   const searchParams = useGlobalSearchParams<Record<string, string>>();
   const profile = useAuthStore((state) => state.profile);
-  // Explicit open/close per parent href, set only once the user has clicked
-  // it - until then `isExpanded` below falls back to "open if a child route
-  // is currently on screen" so landing straight on e.g. Payment In (a
-  // refresh, a bookmark) doesn't hide the submenu it belongs to.
-  const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
 
   // Several Finance sub-links share one route with a different `type` query
   // param (Payment In/Out both go to quick-payment, Sales/Purchase/Expenses
@@ -87,16 +97,12 @@ export function WebSidebarShell({
     const hrefPath = withoutGroups(hrefPathRaw);
     const pathMatches = pathname === hrefPath || pathname.startsWith(`${hrefPath}/`);
     if (!pathMatches) return false;
-    if (!hrefQuery) return true;
+    // A link with no query (Transactions) is the plain route - the same route
+    // opened with ?type= is one of its siblings (Sales, Purchase, Expenses).
+    if (!hrefQuery) return !searchParams.type;
     return Array.from(new URLSearchParams(hrefQuery).entries()).every(
       ([key, value]) => (searchParams[key] ?? '') === value
     );
-  }
-
-  function isExpanded(item: WebNavItem): boolean {
-    const override = openOverrides[item.href];
-    if (override !== undefined) return override;
-    return !!item.children?.some((child) => isActive(child.href));
   }
 
   return (
@@ -131,7 +137,6 @@ export function WebSidebarShell({
         <View style={{ gap: 2 }}>
           {items.map((item) => {
             const active = isActive(item.href);
-            const expanded = !!item.children && isExpanded(item);
             // A parent with children (e.g. Finance) is "active" only by its
             // own href, not by whichever child route is open - the child
             // rows below carry their own highlight for that instead, so the
@@ -139,12 +144,7 @@ export function WebSidebarShell({
             return (
               <View key={item.href}>
                 <Pressable
-                  onPress={() => {
-                    if (item.children) {
-                      setOpenOverrides((prev) => ({ ...prev, [item.href]: !expanded }));
-                    }
-                    router.push(item.href as any);
-                  }}
+                  onPress={() => router.push(item.href as any)}
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -165,16 +165,9 @@ export function WebSidebarShell({
                   >
                     {item.label}
                   </Text>
-                  {!!item.children && (
-                    <Ionicons
-                      name={expanded ? 'chevron-down' : 'chevron-forward'}
-                      size={14}
-                      color={active ? '#2563EB' : '#9CA3AF'}
-                    />
-                  )}
                 </Pressable>
 
-                {expanded && !!item.children && (
+                {!!item.children && (
                   <View style={{ marginTop: 2, marginBottom: 4, gap: 1 }}>
                     {item.children.map((child) => {
                       const childActive = isActive(child.href);
@@ -216,7 +209,10 @@ export function WebSidebarShell({
 
         <View style={{ flex: 1 }} />
 
-        <View
+        <Pressable
+          onPress={profileHref ? () => router.push(profileHref as any) : undefined}
+          disabled={!profileHref}
+          accessibilityLabel="Account and store details"
           style={{
             flexDirection: 'row',
             alignItems: 'center',
@@ -246,7 +242,7 @@ export function WebSidebarShell({
             </Text>
             <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{roleLabel}</Text>
           </View>
-        </View>
+        </Pressable>
       </View>
 
       {/* `alignItems: 'center'` here (rather than `marginHorizontal: 'auto'`
@@ -258,7 +254,7 @@ export function WebSidebarShell({
           simply not setting it) lets the child fill available width first,
           then centers within that via auto margins. */}
       <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={{ flex: 1, width: '100%', maxWidth: CONTENT_MAX_WIDTH, marginHorizontal: 'auto' }}>
+        <View style={{ flex: 1, width: '100%', maxWidth: contentMaxWidth, marginHorizontal: 'auto' }}>
           {children}
         </View>
       </View>

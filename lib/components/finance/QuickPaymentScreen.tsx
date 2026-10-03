@@ -1,5 +1,5 @@
 // lib/components/finance/QuickPaymentScreen.tsx
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Platform } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -9,10 +9,18 @@ import { useSupabaseInsert, useSupabaseQuery, useSupabaseUpdate } from '../../ho
 import { useBankAccounts } from '../../hooks/useBankAccounts';
 import { usePhoneContacts } from '../../hooks/usePhoneContacts';
 import { useScanBill } from '../../hooks/useScanBill';
+import { useScreenHeader } from '../../hooks/useScreenHeader';
 import { BankAccountPickerModal } from './BankAccountPickerModal';
 import { ContactPickerModal } from '../ContactPickerModal';
 import { DateField } from '../DateTimeFields';
 import { FormSection } from './FormSection';
+import { PaymentEntryTable, type PaymentEntryTableHandle, type PaymentRow } from './PaymentEntryTable';
+import { KeyboardDateInput } from './KeyboardDateInput';
+import { KeyboardSelect } from './KeyboardSelect';
+import { useConfirmSave } from './ConfirmSave';
+import { FINANCE_ENTRY_ACCENT, FINANCE_ENTRY_SHADOW } from './entryTheme';
+import { MONEY } from './moneyColors';
+import { readKey } from '../../utils/webKeys';
 import { showAlert, getErrorMessage } from '../../utils/alert';
 import { toBsLabel, toBsHistoryLabel } from '../../utils/nepaliDate';
 import type { Customer } from '../../../types/database.types';
@@ -27,16 +35,8 @@ function makeRowKey() {
   return `row-${rowKeySeq}`;
 }
 
-interface PaymentRow {
-  key: string;
-  customerName: string;
-  selectedCustomer: Customer | null;
-  amount: string;
-  note: string;
-}
-
 function emptyPaymentRow(): PaymentRow {
-  return { key: makeRowKey(), customerName: '', selectedCustomer: null, amount: '', note: '' };
+  return { key: makeRowKey(), customerName: '', selectedCustomer: null, pendingPhone: null, amount: '', note: '' };
 }
 
 export function QuickPaymentScreen() {
@@ -91,6 +91,7 @@ function QuickPaymentForm() {
   const bankAccounts = useBankAccounts(userId);
   const phoneContacts = usePhoneContacts();
   const { scanning, pickAndScan } = useScanBill();
+  const { confirm: confirmSave, dialog: confirmDialog } = useConfirmSave();
 
   const [customerName, setCustomerName] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -195,6 +196,16 @@ function QuickPaymentForm() {
       showAlert('Enter an amount', 'Add a valid amount in NPR.');
       return;
     }
+    const ok = await confirmSave({
+      title: isOut ? 'Save this payment out?' : 'Save this payment?',
+      rows: [
+        { label: payTarget === 'vendor' ? 'Vendor' : 'Customer', value: trimmedName },
+        ...(receiptNo.trim() ? [{ label: isOut ? 'Payment no.' : 'Receipt no.', value: receiptNo.trim() }] : []),
+        { label: 'Paid via', value: selectedAccountName },
+      ],
+      total: { label: 'Amount', value: `NPR ${value.toLocaleString()}`, color: isOut ? MONEY.out.base : MONEY.in.base },
+    });
+    if (!ok) return;
     setSaving(true);
     try {
       // Typed a name that doesn't match anyone picked/selected above - save
@@ -284,8 +295,19 @@ function QuickPaymentForm() {
     return customers?.find((c) => c.id === id)?.name ?? 'Unnamed';
   }
 
-  function addRow() {
-    setRows((prev) => [...prev, emptyPaymentRow()]);
+  const tableRef = useRef<PaymentEntryTableHandle>(null);
+  const receiptRef = useRef<TextInput>(null);
+  const methodRef = useRef<HTMLSelectElement | null>(null);
+  const saveButtonRef = useRef<View>(null);
+
+  function addRow(): string {
+    const row = emptyPaymentRow();
+    setRows((prev) => [...prev, row]);
+    return row.key;
+  }
+
+  function focusFirstRow() {
+    tableRef.current?.focusRow(rows[0]?.key ?? '', 0);
   }
 
   function removeRow(key: string) {
@@ -335,6 +357,7 @@ function QuickPaymentForm() {
         key,
         customerName: scanned.vendor_name ?? '',
         selectedCustomer: null,
+        pendingPhone: null,
         amount: scanned.amount ? String(scanned.amount) : '',
         note: scanned.note ?? '',
       },
@@ -365,6 +388,17 @@ function QuickPaymentForm() {
       showAlert('Add a payment', 'Add at least one person and a valid amount to record.');
       return;
     }
+    const sum = validRows.reduce((s, r) => s + Number(r.amount), 0);
+    const ok = await confirmSave({
+      title: `Save ${validRows.length === 1 ? 'this' : `these ${validRows.length}`} ${isOut ? 'payment out' : 'receipt'}${validRows.length === 1 ? '' : 's'}?`,
+      rows: [
+        ...validRows.slice(0, 5).map((r) => ({ label: r.customerName.trim(), value: `NPR ${Number(r.amount).toLocaleString()}` })),
+        ...(validRows.length > 5 ? [{ label: `+ ${validRows.length - 5} more` }] : []),
+        { label: 'Paid via', value: selectedAccountName },
+      ],
+      total: { label: 'Total', value: `NPR ${sum.toLocaleString()}`, color: isOut ? MONEY.out.base : MONEY.in.base },
+    });
+    if (!ok) return;
     setSaving(true);
     try {
       // Each row leaves the table the moment it's saved (and a customer
@@ -375,7 +409,15 @@ function QuickPaymentForm() {
         const trimmedName = row.customerName.trim();
         let customer = row.selectedCustomer;
         if (!customer) {
-          customer = await createCustomer.mutateAsync({ owner_id: userId, name: trimmedName, phone: null });
+          // A name typed in full without picking it from the list still
+          // means the saved customer of that name, not a duplicate of them.
+          customer =
+            (customers ?? []).find((c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase()) ?? null;
+        }
+        if (!customer) {
+          customer = await createCustomer.mutateAsync({ owner_id: userId, name: trimmedName, phone: row.pendingPhone });
+        }
+        if (customer !== row.selectedCustomer) {
           updateRow(row.key, { selectedCustomer: customer, customerName: customer.name });
         }
         await insertEntry.mutateAsync({
@@ -400,10 +442,13 @@ function QuickPaymentForm() {
           .reduce((sum, r) => sum + Number(r.amount), 0)
           .toLocaleString()} total.`
       );
-      setRows([emptyPaymentRow()]);
+      const fresh = emptyPaymentRow();
+      setRows([fresh]);
       setBankAccountId(null);
       setDate(todayIso());
       setReceiptNoTouched(false);
+      // Ready for the next voucher - caret straight back in the first cell.
+      tableRef.current?.focusRow(fresh.key, 0);
     } catch (err) {
       showAlert('Could not save', getErrorMessage(err));
     } finally {
@@ -510,6 +555,7 @@ function QuickPaymentForm() {
 
   const pickerModals = (
     <>
+      {confirmDialog}
       <ContactPickerModal
         visible={showPicker}
         initialQuery={pickerQuery}
@@ -531,132 +577,140 @@ function QuickPaymentForm() {
     </>
   );
 
-  if (Platform.OS === 'web') {
-    const webScanBillButton = (
-      <Pressable
-        onPress={handleScanForRow}
-        disabled={scanning}
-        className="flex-row items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-50 px-4 py-2.5 disabled:opacity-50"
-      >
-        <Ionicons name={scanning ? 'hourglass-outline' : 'camera-outline'} size={16} color="#2563EB" />
-        <Text className="text-sm font-semibold text-blue-700">{scanning ? 'Reading the slip…' : 'Scan Bill'}</Text>
-      </Pressable>
-    );
+  // On web the page's name and its Scan Bill button live in the top bar; the
+  // heading that used to repeat the name under it is gone.
+  const scanRowRef = useRef<() => void>(() => {});
+  scanRowRef.current = handleScanForRow;
+  useScreenHeader(
+    Platform.OS === 'web'
+      ? {
+          title: meta.label,
+          resetTitle: 'Quick Payment',
+          headerRight: () => (
+            <Pressable
+              onPress={() => scanRowRef.current()}
+              disabled={scanning}
+              className="h-9 flex-row items-center justify-center rounded-lg border border-blue-600 bg-blue-50 px-3.5 disabled:opacity-50"
+              style={{ gap: 6 }}
+            >
+              <Ionicons name={scanning ? 'hourglass-outline' : 'camera-outline'} size={15} color="#2563EB" />
+              <Text className="text-[13px] font-semibold text-blue-700">{scanning ? 'Reading…' : 'Scan Bill'}</Text>
+            </Pressable>
+          ),
+        }
+      : {},
+    [meta.label, scanning]
+  );
 
+  if (Platform.OS === 'web') {
+    const accent = FINANCE_ENTRY_ACCENT;
     return (
       <ScrollView className="flex-1 bg-gray-50" contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         <View className="px-8 pt-6">
-          <View className="mb-5 flex-row items-center justify-between">
-            <Text className="text-2xl font-bold" style={{ color: meta.color }}>
-              {meta.label}
-            </Text>
-            {webScanBillButton}
-          </View>
-
           <View className="flex-row" style={{ gap: 24 }}>
-            <View className="flex-1" style={{ minWidth: 0, maxWidth: 720 }}>
+            <View className="flex-1" style={{ minWidth: 0, maxWidth: 1500 }}>
               {/* Date/Receipt No. and Payment method apply to every row in
                   the table below - one voucher covering several people,
-                  not a separate form per person. */}
-              <View className="mb-5 rounded-2xl border border-gray-200 bg-white p-5">
-                <FormSection icon="document-text-outline" title="Details" first>
-                  <View className="flex-row gap-3">
-                    <View className="flex-1">
-                      <Text className="mb-1 text-xs font-medium text-gray-500">Date</Text>
-                      <DateField value={date} onChange={setDate} />
-                    </View>
-                    <View className="flex-1">
-                      <Text className="mb-1 text-xs font-medium text-gray-500">{isOut ? 'Payment No.' : 'Receipt No.'}</Text>
-                      <TextInput
-                        value={receiptNo}
-                        onChangeText={(v) => {
-                          setReceiptNo(v);
-                          setReceiptNoTouched(true);
-                        }}
-                        placeholder="Optional"
-                        placeholderTextColor="#9CA3AF"
-                        keyboardType="numeric"
-                        className="rounded-lg border border-gray-300 px-3 py-3 text-sm text-gray-900"
-                      />
-                    </View>
-                  </View>
-                </FormSection>
-
-                {paymentMethodSection}
-              </View>
-
-              <View className="rounded-2xl border border-gray-200 bg-white p-5">
-                <View className="mb-3 flex-row items-center gap-1.5">
-                  <Ionicons name="people-outline" size={13} color="#9CA3AF" />
-                  <Text className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-                    {payTarget === 'vendor' ? 'Vendors' : 'Customers'}
-                  </Text>
+                  not a separate form per person. Everything here is
+                  reachable and fillable from the keyboard alone: Tab/Enter
+                  walk Date -> Receipt No. -> Payment method -> the table. */}
+              <View
+                className="mb-4 rounded-2xl border border-gray-200 bg-white px-5 py-4"
+                style={{ boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 4px 12px rgba(16,24,40,0.03)' }}
+              >
+                <View className="mb-3 flex-row items-center gap-2">
+                  <Ionicons name="document-text-outline" size={14} color="#6B7280" />
+                  <Text className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Details</Text>
                 </View>
-
-                <View className="mb-1.5 flex-row gap-2 px-1">
-                  <Text className="flex-[1.3] text-[11px] font-semibold text-gray-500">
-                    {payTarget === 'vendor' ? 'Vendor' : 'Customer'}
-                  </Text>
-                  <Text className="flex-1 text-[11px] font-semibold text-gray-500">Amount (NPR)</Text>
-                  <Text className="flex-[1.3] text-[11px] font-semibold text-gray-500">Note</Text>
-                  <View style={{ width: 28 }} />
-                </View>
-
-                {rows.map((row) => (
-                  <View key={row.key} className="mb-2 flex-row items-center gap-2">
-                    <Pressable
-                      onPress={() => {
-                        phoneContacts.request();
-                        setRowPickerQuery('');
-                        setActiveRowKey(row.key);
-                      }}
-                      className="flex-[1.3] flex-row items-center justify-between rounded-lg border border-gray-300 bg-white px-3 py-2.5"
-                    >
-                      <Text className={`flex-1 text-sm ${row.customerName ? 'text-gray-900' : 'text-gray-400'}`} numberOfLines={1}>
-                        {row.customerName || (payTarget === 'vendor' ? 'Which vendor?' : 'Who is this from/for?')}
-                      </Text>
-                      <Ionicons name="chevron-down" size={14} color="#9CA3AF" />
-                    </Pressable>
-                    <TextInput
-                      value={row.amount}
-                      onChangeText={(v) => updateRow(row.key, { amount: v })}
-                      placeholder="0"
-                      placeholderTextColor="#D1D5DB"
-                      keyboardType="numeric"
-                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-semibold text-gray-900"
+                <View className="flex-row" style={{ gap: 14 }}>
+                  <View style={{ flex: 1.3, minWidth: 0 }}>
+                    <Text className="mb-1.5 text-xs font-semibold text-gray-600">Date</Text>
+                    <KeyboardDateInput
+                      value={date}
+                      onChange={setDate}
+                      accent={accent}
+                      onEnter={() => receiptRef.current?.focus()}
+                      onRequestSave={handleSaveAll}
                     />
+                  </View>
+                  <View style={{ flex: 0.8, minWidth: 0 }}>
+                    <Text className="mb-1.5 text-xs font-semibold text-gray-600">{isOut ? 'Payment No.' : 'Receipt No.'}</Text>
                     <TextInput
-                      value={row.note}
-                      onChangeText={(v) => updateRow(row.key, { note: v })}
+                      ref={receiptRef}
+                      value={receiptNo}
+                      onChangeText={(v) => {
+                        setReceiptNo(v);
+                        setReceiptNoTouched(true);
+                      }}
+                      onKeyPress={(e) => {
+                        const k = readKey(e);
+                        if (k.key !== 'Enter') return;
+                        k.prevent();
+                        if (k.ctrl) handleSaveAll();
+                        else methodRef.current?.focus();
+                      }}
                       placeholder="Optional"
                       placeholderTextColor="#9CA3AF"
-                      className="flex-[1.3] rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900"
+                      keyboardType="numeric"
+                      selectTextOnFocus
+                      accessibilityLabel={isOut ? 'Payment number' : 'Receipt number'}
+                      className="rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-semibold text-gray-900"
+                      style={{ outlineStyle: 'none' } as object}
                     />
-                    <Pressable onPress={() => removeRow(row.key)} hitSlop={8} style={{ width: 28, alignItems: 'center' }}>
-                      <Ionicons name="close-circle" size={18} color={rows.length > 1 ? '#DC2626' : '#E5E7EB'} />
-                    </Pressable>
                   </View>
-                ))}
+                  <View style={{ flex: 1.1, minWidth: 0 }}>
+                    <Text className="mb-1.5 text-xs font-semibold text-gray-600">Payment method</Text>
+                    <KeyboardSelect
+                      value={bankAccountId ?? '__cash__'}
+                      options={[
+                        { value: '__cash__', label: 'Cash' },
+                        ...bankAccounts.accounts.map((a) => ({ value: a.id, label: a.name })),
+                      ]}
+                      onChange={(v) => setBankAccountId(v === '__cash__' ? null : v)}
+                      selectRef={(el) => {
+                        methodRef.current = el;
+                      }}
+                      onEnter={focusFirstRow}
+                      onRequestSave={handleSaveAll}
+                      accent={accent}
+                      label="Payment method"
+                    />
+                  </View>
+                </View>
+              </View>
 
-                <Pressable onPress={addRow} className="mt-2 flex-row items-center gap-1.5 self-start">
-                  <Ionicons name="add-circle-outline" size={16} color={meta.color} />
-                  <Text className="text-sm font-semibold" style={{ color: meta.color }}>
-                    Add {payTarget === 'vendor' ? 'vendor' : 'person'}
-                  </Text>
-                </Pressable>
+              <PaymentEntryTable
+                ref={tableRef}
+                rows={rows}
+                customers={customers ?? []}
+                phoneContacts={phoneContacts.contacts}
+                accent={accent}
+                partyLabel={payTarget === 'vendor' ? 'Vendor' : 'Customer'}
+                addLabel={`Add ${payTarget === 'vendor' ? 'vendor' : 'person'}`}
+                totalLabel={isOut ? 'Total paid out' : 'Total received'}
+                totalColor={meta.color}
+                onUpdateRow={updateRow}
+                onAddRow={addRow}
+                onRemoveRow={removeRow}
+                onRequestSave={handleSaveAll}
+                onExit={() => (saveButtonRef.current as unknown as { focus?: () => void } | null)?.focus?.()}
+                autoFocusFirst
+              />
 
-                <View className="mt-5 flex-row gap-3 border-t border-gray-100 pt-4">
+              <View className="mt-4 flex-row items-center justify-end" style={{ gap: 16 }}>
+                <View className="flex-row" style={{ gap: 10 }}>
                   <Pressable
                     onPress={() => router.back()}
-                    className="flex-1 items-center rounded-xl border border-gray-300 py-3"
+                    className="items-center rounded-xl border border-gray-300 bg-white px-6 py-2.5"
                   >
                     <Text className="text-sm font-semibold text-gray-600">Cancel</Text>
                   </Pressable>
                   <Pressable
+                    ref={saveButtonRef}
                     onPress={handleSaveAll}
                     disabled={saving}
-                    className="flex-1 items-center rounded-xl py-3 disabled:opacity-50"
-                    style={{ backgroundColor: meta.color }}
+                    className="items-center rounded-xl px-8 py-2.5 disabled:opacity-50"
+                    style={{ backgroundColor: accent, boxShadow: `0 2px 6px ${FINANCE_ENTRY_SHADOW}` }}
                   >
                     <Text className="text-sm font-bold text-white">{saving ? 'Saving…' : 'Save'}</Text>
                   </Pressable>
@@ -685,7 +739,7 @@ function QuickPaymentForm() {
                           {toBsHistoryLabel(entry.entry_date ?? entry.created_at)}
                         </Text>
                       </View>
-                      <Text className="text-xs font-bold" style={{ color: meta.color }}>
+                      <Text className="text-xs font-bold" style={{ color: accent }}>
                         NPR {entry.amount.toLocaleString()}
                       </Text>
                     </View>
@@ -695,6 +749,8 @@ function QuickPaymentForm() {
             </View>
           </View>
         </View>
+
+        {confirmDialog}
 
         <ContactPickerModal
           visible={activeRowKey != null}

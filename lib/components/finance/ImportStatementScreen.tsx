@@ -1,7 +1,8 @@
 // lib/components/finance/ImportStatementScreen.tsx
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { View, Text, TextInput, Pressable, FlatList } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBarActions, useBookLayout } from './BookKit';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../hooks/useAuth';
@@ -13,10 +14,10 @@ import type { Customer } from '../../../types/database.types';
 
 const TYPE_META: Record<StatementAction, { label: string; color: string; bg: string }> = {
   payment_out: { label: 'Payment Out', color: '#DC2626', bg: '#FEF2F2' },
-  expense: { label: 'Expense', color: '#D97706', bg: '#FFFBEB' },
+  expense: { label: 'Expense', color: '#DC2626', bg: '#FEF2F2' },
   withdraw: { label: 'Withdraw', color: '#4B5563', bg: '#F3F4F6' },
   payment_in: { label: 'Received', color: '#059669', bg: '#ECFDF5' },
-  deposit: { label: 'Deposit', color: '#0D9488', bg: '#F0FDFA' },
+  deposit: { label: 'Deposit', color: '#059669', bg: '#ECFDF5' },
 };
 
 // Only one dropdown (party suggestions, type picker, or expense category)
@@ -88,22 +89,29 @@ export function ImportStatementScreen() {
     return (customers ?? []).filter((c) => c.name.toLowerCase().includes(q)).slice(0, 5);
   }
 
-  return (
-    <View className="flex-1 bg-gray-50" style={{ paddingTop: insets.top }}>
-      <View className="flex-row items-center justify-between border-b border-gray-100 bg-white px-4 py-3">
-        <View className="flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Ionicons name="arrow-back" size={22} color="#374151" />
-          </Pressable>
-          <Text className="text-base font-bold text-gray-900">Import Statement</Text>
-        </View>
-        {!!rows && (
-          <Pressable onPress={handleChangeFile} hitSlop={8}>
-            <Text className="text-xs font-semibold text-blue-600">Change file</Text>
-          </Pressable>
-        )}
-      </View>
+  // The name, the back button (phones) and "Change file" live in the top bar.
+  const layout = useBookLayout();
+  const changeFileRef = useRef<() => void>(() => {});
+  changeFileRef.current = handleChangeFile;
+  useBarActions(
+    {
+      wide: layout.wide,
+      right: rows
+        ? () => (
+            <Pressable
+              onPress={() => changeFileRef.current()}
+              className="h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3.5"
+            >
+              <Text className="text-[13px] font-semibold text-blue-700">Change file</Text>
+            </Pressable>
+          )
+        : undefined,
+    },
+    [!!rows]
+  );
 
+  return (
+    <View className="flex-1 bg-gray-50">
       {!rows ? (
         <View className="flex-1 items-center justify-center px-8">
           <Ionicons name="document-attach-outline" size={40} color="#9CA3AF" />

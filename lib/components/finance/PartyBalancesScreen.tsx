@@ -4,6 +4,7 @@ import { View, Text, Pressable, FlatList } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../hooks/useAuth';
+import { useBarActions, useBookLayout } from './BookKit';
 import { useSupabaseQuery } from '../../hooks/useSupabase';
 
 type Direction = 'receive' | 'give';
@@ -86,15 +87,12 @@ export function PartyBalancesScreen({ basePath, direction }: { basePath: string;
 
   const total = rows.reduce((sum, r) => sum + r.balance, 0);
 
+  // The name (and the back button on a phone) are in the top bar.
+  const layout = useBookLayout();
+  useBarActions({ wide: layout.wide }, []);
+
   return (
     <View className="flex-1 bg-gray-50 px-6 pt-4">
-      <View className="mb-3 flex-row items-center gap-2">
-        <Pressable onPress={() => router.back()} hitSlop={8} className="p-1">
-          <Ionicons name="chevron-back" size={20} color="#374151" />
-        </Pressable>
-        <Text className="text-base font-bold text-gray-900">{meta.title}</Text>
-      </View>
-
       <View className="mb-4 rounded-2xl border p-4" style={{ backgroundColor: meta.bg, borderColor: meta.border }}>
         {!!meta.subtitle && (
           <View className="mb-1 flex-row items-center gap-2">

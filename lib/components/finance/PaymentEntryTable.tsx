@@ -1,0 +1,351 @@
+// lib/components/finance/PaymentEntryTable.tsx
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { Customer } from '../../../types/database.types';
+import type { PhoneContactEntry } from '../../hooks/usePhoneContacts';
+import { buildCustomerSuggestions, type CustomerSuggestion } from '../../utils/customerSuggestions';
+import { readKey } from '../../utils/webKeys';
+import { SuggestInput, type SuggestOption } from './SuggestInput';
+
+export interface PaymentRow {
+  key: string;
+  customerName: string;
+  selectedCustomer: Customer | null;
+  // Phone of a phone-contact suggestion that isn't a saved customer yet -
+  // used when that customer is created at save time.
+  pendingPhone: string | null;
+  amount: string;
+  note: string;
+}
+
+export interface PaymentEntryTableHandle {
+  /** Puts the caret in a cell of the row with this key (works for a row added in the same tick). */
+  focusRow: (rowKey: string, col?: 0 | 1 | 2) => void;
+}
+
+type Col = 0 | 1 | 2;
+const MAX_SUGGESTIONS = 6;
+
+interface Props {
+  rows: PaymentRow[];
+  customers: Customer[];
+  phoneContacts: PhoneContactEntry[];
+  accent: string;
+  partyLabel: string;
+  addLabel: string;
+  totalLabel: string;
+  /** The total's colour - green for money in, red for money out; defaults to `accent`. */
+  totalColor?: string;
+  onUpdateRow: (key: string, patch: Partial<PaymentRow>) => void;
+  /** Appends an empty row and returns its key. */
+  onAddRow: () => string;
+  onRemoveRow: (key: string) => void;
+  onRequestSave: () => void;
+  /** Enter on a blank last row: the list is finished, move on (to Save). */
+  onExit: () => void;
+  autoFocusFirst?: boolean;
+}
+
+function rowHasContent(row: PaymentRow): boolean {
+  return !!(row.customerName.trim() || row.amount.trim() || row.note.trim());
+}
+
+export const PaymentEntryTable = forwardRef<PaymentEntryTableHandle, Props>(function PaymentEntryTable(
+  {
+    rows,
+    customers,
+    phoneContacts,
+    accent,
+    partyLabel,
+    addLabel,
+    totalLabel,
+    totalColor,
+    onUpdateRow,
+    onAddRow,
+    onRemoveRow,
+    onRequestSave,
+    onExit,
+    autoFocusFirst,
+  },
+  ref
+) {
+  const inputRefs = useRef<Record<string, TextInput | null>>({});
+  const pendingFocus = useRef<{ key: string; col: Col } | null>(null);
+  const [focusedCell, setFocusedCell] = useState<{ key: string; col: Col } | null>(null);
+
+  const filled = rows.filter(rowHasContent).length;
+  const total = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+  // A row added a moment ago only has its inputs after the re-render, so the
+  // caret move waits for that render instead of racing it.
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (!target) return;
+    const el = inputRefs.current[`${target.key}:${target.col}`];
+    if (el) {
+      pendingFocus.current = null;
+      el.focus();
+    }
+  }, [rows]);
+
+  useImperativeHandle(ref, () => ({
+    focusRow: (rowKey, col = 0) => {
+      pendingFocus.current = { key: rowKey, col };
+      const el = inputRefs.current[`${rowKey}:${col}`];
+      if (el) {
+        pendingFocus.current = null;
+        el.focus();
+      }
+    },
+  }));
+
+  const focusedRowKey = focusedCell?.col === 0 ? focusedCell.key : null;
+  const suggestions = useMemo<CustomerSuggestion[]>(() => {
+    if (!focusedRowKey) return [];
+    const row = rows.find((r) => r.key === focusedRowKey);
+    const q = row?.customerName.trim();
+    if (!row || !q) return [];
+    if (row.selectedCustomer && row.selectedCustomer.name === row.customerName) return [];
+    return buildCustomerSuggestions(customers, phoneContacts, q, MAX_SUGGESTIONS);
+  }, [focusedRowKey, rows, customers, phoneContacts]);
+
+  const suggestionOptions = useMemo<SuggestOption[]>(
+    () =>
+      suggestions.map((s) => ({
+        key: s.key,
+        label: s.name,
+        hint: s.customer ? (s.phone ?? 'Saved') : 'From contacts',
+      })),
+    [suggestions]
+  );
+
+  function focusCell(rowIndex: number, col: Col) {
+    const row = rows[rowIndex];
+    if (row) inputRefs.current[`${row.key}:${col}`]?.focus();
+  }
+
+  function addRowAndFocus(col: Col) {
+    pendingFocus.current = { key: onAddRow(), col };
+  }
+
+  // Enter = Tab, except in the last cell of the last row: a row with
+  // something in it starts a new row, a blank one means "done" and moves on.
+  function advance(rowIndex: number, col: Col) {
+    if (col < 2) focusCell(rowIndex, (col + 1) as Col);
+    else if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, 0);
+    else if (rowHasContent(rows[rowIndex])) addRowAndFocus(0);
+    else onExit();
+  }
+
+  function handleKeyPress(e: unknown, row: PaymentRow, rowIndex: number, col: Col) {
+    const k = readKey(e);
+    if (k.key === 'Enter' && k.ctrl) {
+      k.prevent();
+      onRequestSave();
+    } else if (k.key === 'Enter') {
+      k.prevent();
+      advance(rowIndex, col);
+    } else if (k.key === 'ArrowDown') {
+      k.prevent();
+      if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, col);
+      else if (rowHasContent(row)) addRowAndFocus(col);
+    } else if (k.key === 'ArrowUp' && rowIndex > 0) {
+      k.prevent();
+      focusCell(rowIndex - 1, col);
+    }
+  }
+
+  function cellStyle(rowKey: string, col: Col) {
+    const focused = focusedCell?.key === rowKey && focusedCell.col === col;
+    return [
+      {
+        borderWidth: 1.5,
+        borderColor: focused ? accent : '#F1F2F4',
+        backgroundColor: focused ? '#FFFFFF' : 'transparent',
+      },
+      focused ? { boxShadow: `0 0 0 3px ${accent}29` } : null,
+      { outlineStyle: 'none' } as object,
+    ];
+  }
+
+  const cellClass = 'rounded-lg px-2.5 py-2.5 text-sm text-gray-900';
+
+  return (
+    <View
+      className="rounded-2xl border border-gray-200 bg-white"
+      // zIndex: react-native-web gives every View its own stacking context, so
+      // without it the typeahead list would paint under whatever follows the card.
+      style={{ boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 4px 12px rgba(16,24,40,0.03)', zIndex: 10 }}
+    >
+      <View className="flex-row items-center justify-between px-5 pb-3 pt-4">
+        <View className="flex-row items-center gap-2">
+          <Ionicons name="people-outline" size={14} color="#6B7280" />
+          <Text className="text-[11px] font-bold uppercase tracking-wider text-gray-500">{partyLabel}s</Text>
+        </View>
+        <Text className="text-xs text-gray-400">
+          {filled} {filled === 1 ? 'entry' : 'entries'}
+        </Text>
+      </View>
+
+      <View className="flex-row items-center border-y border-gray-200 bg-gray-50 px-2 py-2">
+        <Text className="text-center text-[11px] font-bold uppercase tracking-wider text-gray-500" style={{ width: 36 }}>
+          #
+        </Text>
+        <Text className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-gray-500" style={{ flex: 1.35 }}>
+          {partyLabel}
+        </Text>
+        <Text
+          className="px-2.5 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500"
+          style={{ width: 160 }}
+        >
+          Amount (NPR)
+        </Text>
+        <Text className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-gray-500" style={{ flex: 1.1 }}>
+          Note
+        </Text>
+        <View style={{ width: 36 }} />
+      </View>
+
+      {rows.map((row, rowIndex) => {
+        const rowFocused = focusedCell?.key === row.key;
+        const linked =
+          row.selectedCustomer ??
+          (row.customerName.trim()
+            ? (customers.find((c) => c.name.trim().toLowerCase() === row.customerName.trim().toLowerCase()) ?? null)
+            : null);
+        return (
+          <View
+            key={row.key}
+            className="flex-row items-center border-b border-gray-100 px-2 py-0.5"
+            style={{ backgroundColor: rowFocused ? `${accent}0D` : 'transparent', zIndex: rowFocused ? 5 : 0 }}
+          >
+            <Text className="text-center text-[13px] font-semibold text-gray-400" style={{ width: 36 }}>
+              {rowIndex + 1}
+            </Text>
+
+            <View style={{ flex: 1.35, minWidth: 0 }}>
+              <SuggestInput
+                value={row.customerName}
+                onChangeText={(v) => {
+                  const stillLinked = row.selectedCustomer && row.selectedCustomer.name === v;
+                  onUpdateRow(row.key, {
+                    customerName: v,
+                    selectedCustomer: stillLinked ? row.selectedCustomer : null,
+                    pendingPhone: null,
+                  });
+                }}
+                options={focusedRowKey === row.key ? suggestionOptions : []}
+                onSelectOption={(opt, via) => {
+                  const s = suggestions.find((x) => x.key === opt.key);
+                  if (!s) return;
+                  onUpdateRow(row.key, {
+                    customerName: s.name,
+                    selectedCustomer: s.customer,
+                    pendingPhone: s.customer ? null : s.phone,
+                  });
+                  if (via !== 'tab') inputRefs.current[`${row.key}:1`]?.focus();
+                }}
+                inputRef={(el) => {
+                  inputRefs.current[`${row.key}:0`] = el;
+                }}
+                onFocus={() => setFocusedCell({ key: row.key, col: 0 })}
+                onBlur={() => setFocusedCell((cur) => (cur?.key === row.key && cur.col === 0 ? null : cur))}
+                onKeyPress={(e) => handleKeyPress(e, row, rowIndex, 0)}
+                placeholder="Who is this from?"
+                accessibilityLabel={`${partyLabel}, row ${rowIndex + 1}`}
+                autoFocus={autoFocusFirst && rowIndex === 0}
+                accent={accent}
+                inputClassName={cellClass}
+                inputStyle={cellStyle(row.key, 0)}
+                adornmentWidth={54}
+                adornment={
+                  linked ? (
+                    <Ionicons name="checkmark-circle" size={15} color={accent} />
+                  ) : row.customerName.trim() ? (
+                    <Text className="text-[10px] font-bold uppercase text-gray-400">New</Text>
+                  ) : null
+                }
+              />
+            </View>
+
+            <View style={{ width: 160 }}>
+              <TextInput
+                ref={(el) => {
+                  inputRefs.current[`${row.key}:1`] = el;
+                }}
+                value={row.amount}
+                onChangeText={(v) => onUpdateRow(row.key, { amount: v.replace(/[^0-9.]/g, '') })}
+                onFocus={() => setFocusedCell({ key: row.key, col: 1 })}
+                onBlur={() => setFocusedCell((cur) => (cur?.key === row.key && cur.col === 1 ? null : cur))}
+                onKeyPress={(e) => handleKeyPress(e, row, rowIndex, 1)}
+                placeholder="0"
+                placeholderTextColor="#B2B8C1"
+                keyboardType="numeric"
+                accessibilityLabel={`Amount in NPR, row ${rowIndex + 1}`}
+                selectTextOnFocus
+                className={`${cellClass} text-right font-semibold`}
+                style={cellStyle(row.key, 1)}
+              />
+            </View>
+
+            <View style={{ flex: 1.1, minWidth: 0 }}>
+              <TextInput
+                ref={(el) => {
+                  inputRefs.current[`${row.key}:2`] = el;
+                }}
+                value={row.note}
+                onChangeText={(v) => onUpdateRow(row.key, { note: v })}
+                onFocus={() => setFocusedCell({ key: row.key, col: 2 })}
+                onBlur={() => setFocusedCell((cur) => (cur?.key === row.key && cur.col === 2 ? null : cur))}
+                onKeyPress={(e) => handleKeyPress(e, row, rowIndex, 2)}
+                placeholder="Optional"
+                placeholderTextColor="#B2B8C1"
+                accessibilityLabel={`Note, row ${rowIndex + 1}`}
+                selectTextOnFocus
+                className={cellClass}
+                style={cellStyle(row.key, 2)}
+              />
+            </View>
+
+            <View style={{ width: 36, alignItems: 'center' }}>
+              <Pressable
+                onPress={() => onRemoveRow(row.key)}
+                disabled={rows.length === 1}
+                tabIndex={-1}
+                hitSlop={6}
+                accessibilityLabel={`Remove row ${rowIndex + 1}`}
+                style={{ opacity: rows.length === 1 ? 0 : 0.6 }}
+              >
+                <Ionicons name="close-circle" size={18} color="#DC2626" />
+              </Pressable>
+            </View>
+          </View>
+        );
+      })}
+
+      <View
+        className="flex-row flex-wrap items-center justify-between border-t border-gray-200 bg-gray-50 px-3 py-2.5"
+        style={{ borderBottomLeftRadius: 16, borderBottomRightRadius: 16 }}
+      >
+        <Pressable
+          onPress={() => addRowAndFocus(0)}
+          tabIndex={-1}
+          className="flex-row items-center gap-1.5 rounded-lg px-2 py-2"
+          accessibilityLabel={addLabel}
+        >
+          <Ionicons name="add-circle-outline" size={17} color={accent} />
+          <Text className="text-sm font-bold" style={{ color: accent }}>
+            {addLabel}
+          </Text>
+        </Pressable>
+        <View className="flex-row items-baseline gap-3 pr-2">
+          <Text className="text-[13px] font-semibold text-gray-500">{totalLabel}</Text>
+          <Text className="text-xl font-extrabold" style={{ color: totalColor ?? accent }}>
+            NPR {total.toLocaleString()}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+});

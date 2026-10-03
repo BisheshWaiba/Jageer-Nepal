@@ -9,7 +9,7 @@ import { WebSidebarShell, WEB_SIDEBAR_MIN_WIDTH, type WebNavItem } from '../../l
 import { ResellerHoldNotice } from '../../lib/components/HoldNotice';
 import { ResellerLeaveRequestNotice } from '../../lib/components/LeaveRequestNotice';
 import { useAuthStore } from '../../lib/hooks/useAuth';
-import { shortcuts as financeShortcuts } from '../../lib/components/finance/FinanceDashboardScreen';
+import { shortcuts as financeShortcuts, FINANCE_WIDE_ROUTES } from '../../lib/components/finance/FinanceDashboardScreen';
 
 // Same 4 sections as the mobile bottom tabs below, just as a persistent
 // left rail on web instead - see WebSidebarShell. Finance's own shortcuts
@@ -37,7 +37,14 @@ export default function ResellerLayout() {
     <Tabs
       backBehavior="history"
       screenOptions={{
-        header: ({ options }) => <PortalHeaderBar title={options.title} />,
+        header: ({ options }) => (
+          <PortalHeaderBar
+            title={options.title}
+            hideAccount={isWideWeb}
+            left={options.headerLeft?.({ canGoBack: false })}
+            right={options.headerRight?.({ canGoBack: false })}
+          />
+        ),
         tabBarActiveTintColor: ROLE_ACCENT.reseller,
         ...(isWideWeb ? { tabBarStyle: { display: 'none' } } : null),
       }}
@@ -110,12 +117,12 @@ export default function ResellerLayout() {
         <Tabs.Screen name="technician/[id]" options={{ href: null, title: 'Work History' }} />
         <Tabs.Screen name="customers" options={{ href: null, title: 'Ledger' }} />
         <Tabs.Screen name="customer/[id]" options={{ href: null, title: 'Customer' }} />
-        <Tabs.Screen name="transactions" options={{ href: null, title: 'Transactions' }} />
+        <Tabs.Screen name="transactions" options={{ href: null, title: 'Statement' }} />
         <Tabs.Screen name="quick-payment" options={{ href: null, title: 'Quick Payment' }} />
         <Tabs.Screen name="received" options={{ href: null, title: 'Total Received' }} />
         <Tabs.Screen name="paid" options={{ href: null, title: 'Total Paid' }} />
-        <Tabs.Screen name="to-receive" options={{ href: null, title: 'To Receive' }} />
-        <Tabs.Screen name="to-give" options={{ href: null, title: 'To Give' }} />
+        <Tabs.Screen name="to-receive" options={{ href: null, title: 'Receivable' }} />
+        <Tabs.Screen name="to-give" options={{ href: null, title: 'Payable' }} />
         <Tabs.Screen name="bank-accounts" options={{ href: null, title: 'Bank Accounts' }} />
         <Tabs.Screen name="bank-balances" options={{ href: null, title: 'Available Balance' }} />
         <Tabs.Screen name="import-statement" options={{ href: null, title: 'Import Statement' }} />
@@ -131,7 +138,7 @@ export default function ResellerLayout() {
           whichever tab (or the sidebar) is open. */}
       <View style={{ flex: 1 }}>
         {isWideWeb ? (
-          <WebSidebarShell items={NAV_ITEMS} roleLabel="Reseller">
+          <WebSidebarShell items={NAV_ITEMS} roleLabel="Reseller" profileHref="/(reseller)/profile" wideRoutes={FINANCE_WIDE_ROUTES}>
             {tabs}
           </WebSidebarShell>
         ) : (

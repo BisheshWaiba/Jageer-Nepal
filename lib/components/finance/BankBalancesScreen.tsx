@@ -11,6 +11,7 @@ import { BankAccountPickerModal } from './BankAccountPickerModal';
 import { DateField } from '../DateTimeFields';
 import { toBsHistoryLabel } from '../../utils/nepaliDate';
 import { showAlert, getErrorMessage } from '../../utils/alert';
+import { ToolbarButton, useBarActions, useBookLayout } from './BookKit';
 import { localTodayIso } from '../../utils/localDate';
 
 // Local date, not UTC - see localTodayIso.
@@ -187,6 +188,7 @@ function TransferForm({ userId, onDone }: { userId: string; onDone: () => void }
  * details, removing it) is a deliberately separate screen reached from
  * Finance's Shortcuts, not from here. */
 export function BankBalancesScreen({ basePath }: { basePath: string }) {
+  const layout = useBookLayout();
   const userId = useAuthStore((state) => state.session?.user.id);
   const balances = useAccountBalances(userId);
   const deleteTransfer = useSupabaseDelete('account_transfers');
@@ -202,26 +204,17 @@ export function BankBalancesScreen({ basePath }: { basePath: string }) {
     });
   }
 
+  // The name, the back button (phones) and Transfer live in the top bar.
+  useBarActions(
+    {
+      wide: layout.wide,
+      right: !showTransfer && userId ? () => <ToolbarButton icon="swap-horizontal" label="Transfer" onPress={() => setShowTransfer(true)} /> : undefined,
+    },
+    [showTransfer, userId]
+  );
+
   return (
     <ScrollView className="flex-1 bg-gray-50 px-6 pt-4" contentContainerStyle={{ paddingBottom: 40 }}>
-      <View className="mb-4 flex-row items-center justify-between">
-        <View className="flex-row items-center gap-2">
-          <Pressable onPress={() => router.back()} hitSlop={8} className="p-1">
-            <Ionicons name="chevron-back" size={20} color="#374151" />
-          </Pressable>
-          <Text className="text-base font-bold text-gray-900">Available Balance</Text>
-        </View>
-        {!showTransfer && userId && (
-          <Pressable
-            onPress={() => setShowTransfer(true)}
-            className="flex-row items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2"
-          >
-            <Ionicons name="swap-horizontal" size={15} color="white" />
-            <Text className="text-xs font-semibold text-white">Transfer</Text>
-          </Pressable>
-        )}
-      </View>
-
       {showTransfer && userId && <TransferForm userId={userId} onDone={() => setShowTransfer(false)} />}
 
       <View className="mb-3 rounded-2xl p-4" style={{ backgroundColor: balances.total >= 0 ? '#EFF6FF' : '#FEF2F2' }}>
