@@ -29,10 +29,10 @@ const NAV_ITEMS: WebNavItem[] = [
   },
 ];
 
-// The four main sections use the wider content column too (like Finance's
-// pages), so there is no empty strip beside them on a big screen - see
-// WebSidebarShell's `wideRoutes`.
-const MAIN_WIDE_ROUTES = ['/dashboard', '/shop', '/requests', '/workhub'];
+// The four main sections, plus Buy From Wholesaler and Quotation, use the
+// wider content column too (like Finance's pages), so there is no empty strip
+// beside them on a big screen - see WebSidebarShell's `wideRoutes`.
+const MAIN_WIDE_ROUTES = ['/dashboard', '/shop', '/requests', '/workhub', '/wholesale', '/quotation'];
 const WIDE_ROUTES = [...FINANCE_WIDE_ROUTES, ...MAIN_WIDE_ROUTES];
 
 export default function ResellerLayout() {

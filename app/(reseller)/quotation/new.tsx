@@ -1,6 +1,6 @@
 // app/(reseller)/quotation/new.tsx
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Image, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, Image, Platform, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -12,6 +12,7 @@ import { supabase } from '../../../lib/supabase';
 import { DateField } from '../../../lib/components/DateTimeFields';
 import { FormSection } from '../../../lib/components/finance/FormSection';
 import { ProductPickerModal } from '../../../lib/components/ProductPickerModal';
+import { WEB_SIDEBAR_MIN_WIDTH } from '../../../lib/components/web/WebSidebarShell';
 import { toSafeImageUri } from '../../../lib/utils/image';
 import { resizeImageForUpload } from '../../../lib/utils/resizeImage';
 import { showAlert, getErrorMessage } from '../../../lib/utils/alert';
@@ -129,6 +130,11 @@ export default function NewQuotation() {
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
   const [pickerRowIndex, setPickerRowIndex] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
+
+  // A phone browser is still Platform.OS === 'web', so the two-column layout
+  // also needs the width the sidebar shell itself switches on.
+  const { width: windowWidth } = useWindowDimensions();
+  const wide = Platform.OS === 'web' && windowWidth >= WEB_SIDEBAR_MIN_WIDTH;
 
   const businessName = profile?.business_name ?? '';
   const suggestedQuoteNo = useMemo(() => {
@@ -436,10 +442,10 @@ export default function NewQuotation() {
     }
   }
 
-  return (
-    <ScrollView className="flex-1 bg-gray-50 px-6 pt-4" contentContainerStyle={{ paddingBottom: 100 }}>
-      <Text className="mb-4 text-2xl font-bold text-gray-900">Generate Quotation</Text>
-
+  // Built once so the phone layout (one stacked card) and the wide web layout
+  // (two columns) show exactly the same fields.
+  const businessSection = (
+    <>
       {(!hasBusinessInfo || editingBusiness) && (
         <View className="mb-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
           <Text className="mb-3 text-sm font-bold text-blue-900">Business details</Text>
@@ -514,180 +520,225 @@ export default function NewQuotation() {
           </View>
         </View>
       )}
-
       {hasBusinessInfo && !editingBusiness && (
         <Pressable onPress={() => setEditingBusiness(true)} className="mb-4 flex-row items-center justify-between rounded-xl border border-gray-200 bg-white p-3">
           <Text className="text-sm font-semibold text-gray-900">{profile?.business_name}</Text>
           <Text className="text-xs font-semibold text-blue-600">Edit</Text>
         </Pressable>
       )}
+    </>
+  );
 
-      <View className="rounded-2xl border border-gray-200 bg-white p-4">
-        <FormSection icon="business-outline" title="Client" first>
-          <Text className="mb-1 text-xs font-medium text-gray-500">Client name</Text>
+  const clientSection = (
+    <FormSection icon="business-outline" title="Client" first>
+      <Text className="mb-1 text-xs font-medium text-gray-500">Client name</Text>
+      <TextInput
+        value={clientName}
+        onChangeText={setClientName}
+        placeholder="Client / company name"
+        className="mb-2.5 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
+      />
+      <Text className="mb-1 text-xs font-medium text-gray-500">Address</Text>
+      <TextInput
+        value={clientAddress}
+        onChangeText={setClientAddress}
+        placeholder="Client address"
+        className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
+      />
+    </FormSection>
+  );
+
+  const quoteSection = (
+    <FormSection icon="document-text-outline" title="Quote details">
+      <Text className="mb-1 text-xs font-medium text-gray-500">Subject</Text>
+      <TextInput
+        value={subject}
+        onChangeText={setSubject}
+        placeholder="e.g. 4MP CCTV System Installation"
+        className="mb-2.5 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
+      />
+      <View className="mb-2.5 flex-row gap-2.5">
+        <View className="flex-1">
+          <Text className="mb-1 text-xs font-medium text-gray-500">Date</Text>
+          <DateField value={date} onChange={setDate} />
+        </View>
+        <View className="flex-1">
+          <Text className="mb-1 text-xs font-medium text-gray-500">Quote No.</Text>
           <TextInput
-            value={clientName}
-            onChangeText={setClientName}
-            placeholder="Client / company name"
-            className="mb-2.5 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
+            value={quoteNo}
+            onChangeText={(v) => {
+              setQuoteNo(v);
+              setQuoteNoTouched(true);
+            }}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm"
           />
-          <Text className="mb-1 text-xs font-medium text-gray-500">Address</Text>
+        </View>
+      </View>
+      <View className="flex-row gap-2.5">
+        <View className="flex-1">
+          <Text className="mb-1 text-xs font-medium text-gray-500">Salesperson</Text>
           <TextInput
-            value={clientAddress}
-            onChangeText={setClientAddress}
-            placeholder="Client address"
+            value={salespersonName}
+            onChangeText={setSalespersonName}
             className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
           />
-        </FormSection>
-
-        <FormSection icon="document-text-outline" title="Quote details">
-          <Text className="mb-1 text-xs font-medium text-gray-500">Subject</Text>
+        </View>
+        <View className="flex-1">
+          <Text className="mb-1 text-xs font-medium text-gray-500">Phone</Text>
           <TextInput
-            value={subject}
-            onChangeText={setSubject}
-            placeholder="e.g. 4MP CCTV System Installation"
-            className="mb-2.5 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
+            value={salespersonPhone}
+            onChangeText={setSalespersonPhone}
+            keyboardType="phone-pad"
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
           />
-          <View className="mb-2.5 flex-row gap-2.5">
-            <View className="flex-1">
-              <Text className="mb-1 text-xs font-medium text-gray-500">Date</Text>
-              <DateField value={date} onChange={setDate} />
-            </View>
-            <View className="flex-1">
-              <Text className="mb-1 text-xs font-medium text-gray-500">Quote No.</Text>
-              <TextInput
-                value={quoteNo}
-                onChangeText={(v) => {
-                  setQuoteNo(v);
-                  setQuoteNoTouched(true);
-                }}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm"
-              />
-            </View>
-          </View>
-          <View className="flex-row gap-2.5">
-            <View className="flex-1">
-              <Text className="mb-1 text-xs font-medium text-gray-500">Salesperson</Text>
-              <TextInput
-                value={salespersonName}
-                onChangeText={setSalespersonName}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
-              />
-            </View>
-            <View className="flex-1">
-              <Text className="mb-1 text-xs font-medium text-gray-500">Phone</Text>
-              <TextInput
-                value={salespersonPhone}
-                onChangeText={setSalespersonPhone}
-                keyboardType="phone-pad"
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
-              />
-            </View>
-          </View>
-        </FormSection>
-
-        <FormSection icon="cube-outline" title="Items">
-          {items.map((row, index) => (
-            <View key={index} className="mb-3 rounded-xl border border-gray-200 p-3">
-              <View className="mb-2 flex-row items-center gap-2.5">
-                <Pressable
-                  onPress={() => setPickerRowIndex(index)}
-                  className="h-14 w-14 items-center justify-center overflow-hidden rounded-lg bg-gray-100"
-                >
-                  {row.photoUrl ? (
-                    <Image source={{ uri: row.photoUrl }} className="h-full w-full" resizeMode="cover" />
-                  ) : (
-                    <Ionicons name="images-outline" size={20} color="#9CA3AF" />
-                  )}
-                </Pressable>
-                <View className="flex-1 gap-1.5">
-                  <Pressable onPress={() => setPickerRowIndex(index)} className="self-start">
-                    <Text className="text-xs font-semibold text-blue-600">Pick from catalog</Text>
-                  </Pressable>
-                  <Pressable onPress={() => handleUploadPhotoForRow(index)} className="self-start">
-                    <Text className="text-xs font-semibold text-gray-500">Or upload a photo</Text>
-                  </Pressable>
-                </View>
-                <Pressable onPress={() => removeRow(index)} hitSlop={8}>
-                  <Ionicons name="trash-outline" size={18} color="#DC2626" />
-                </Pressable>
-              </View>
-              <TextInput
-                value={row.subject}
-                onChangeText={(v) => updateRow(index, { subject: v })}
-                placeholder="Subject (short name)"
-                className="mb-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
-              />
-              <TextInput
-                value={row.description}
-                onChangeText={(v) => updateRow(index, { description: v })}
-                placeholder="Description / specs"
-                multiline
-                className="mb-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
-                style={{ minHeight: 50, textAlignVertical: 'top' }}
-              />
-              <View className="flex-row gap-2">
-                <TextInput
-                  value={row.mrp}
-                  onChangeText={(v) => updateRow(index, { mrp: decimalInput(v) })}
-                  placeholder="MRP"
-                  keyboardType="numeric"
-                  className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
-                />
-                <TextInput
-                  value={row.discount}
-                  onChangeText={(v) => updateRow(index, { discount: decimalInput(v) })}
-                  placeholder="Disc./unit"
-                  keyboardType="numeric"
-                  className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
-                />
-                <TextInput
-                  value={row.rate}
-                  onChangeText={(v) => updateRow(index, { rate: decimalInput(v) })}
-                  placeholder="Rate"
-                  keyboardType="numeric"
-                  className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
-                />
-                <TextInput
-                  value={row.qty}
-                  onChangeText={(v) => updateRow(index, { qty: digitsInput(v) })}
-                  placeholder="Qty"
-                  keyboardType="numeric"
-                  className="w-16 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
-                />
-              </View>
-              <Text className="mt-2 text-right text-sm font-bold text-gray-900">
-                NPR {rowAmount(row).toLocaleString()}
-              </Text>
-            </View>
-          ))}
-          <Pressable onPress={addRow} className="mb-2 self-start">
-            <Text className="text-sm font-semibold text-blue-600">+ Add item</Text>
-          </Pressable>
-          <View className="mt-1 flex-row justify-end">
-            <Text className="text-lg font-extrabold text-gray-900">Total NPR {total.toLocaleString()}</Text>
-          </View>
-        </FormSection>
-
-        <FormSection icon="reader-outline" title="Terms & Conditions">
-          <TextInput
-            value={terms}
-            onChangeText={setTerms}
-            multiline
-            numberOfLines={8}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-xs"
-            style={{ minHeight: 140, textAlignVertical: 'top' }}
-          />
-        </FormSection>
-
-        <Pressable
-          onPress={handleGenerate}
-          disabled={generating}
-          className="items-center rounded-lg bg-blue-600 py-3 disabled:opacity-50"
-        >
-          <Text className="text-base font-semibold text-white">{generating ? 'Generating…' : 'Generate PDF'}</Text>
-        </Pressable>
+        </View>
       </View>
+    </FormSection>
+  );
+
+  // `first` drops the top divider when Items opens its own column.
+  const itemsSection = (
+    <FormSection icon="cube-outline" title="Items" first={wide}>
+      {items.map((row, index) => (
+        <View key={index} className="mb-3 rounded-xl border border-gray-200 p-3">
+          <View className="mb-2 flex-row items-center gap-2.5">
+            <Pressable
+              onPress={() => setPickerRowIndex(index)}
+              className="h-14 w-14 items-center justify-center overflow-hidden rounded-lg bg-gray-100"
+            >
+              {row.photoUrl ? (
+                <Image source={{ uri: row.photoUrl }} className="h-full w-full" resizeMode="cover" />
+              ) : (
+                <Ionicons name="images-outline" size={20} color="#9CA3AF" />
+              )}
+            </Pressable>
+            <View className="flex-1 gap-1.5">
+              <Pressable onPress={() => setPickerRowIndex(index)} className="self-start">
+                <Text className="text-xs font-semibold text-blue-600">Pick from catalog</Text>
+              </Pressable>
+              <Pressable onPress={() => handleUploadPhotoForRow(index)} className="self-start">
+                <Text className="text-xs font-semibold text-gray-500">Or upload a photo</Text>
+              </Pressable>
+            </View>
+            <Pressable onPress={() => removeRow(index)} hitSlop={8}>
+              <Ionicons name="trash-outline" size={18} color="#DC2626" />
+            </Pressable>
+          </View>
+          <TextInput
+            value={row.subject}
+            onChangeText={(v) => updateRow(index, { subject: v })}
+            placeholder="Subject (short name)"
+            className="mb-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+          <TextInput
+            value={row.description}
+            onChangeText={(v) => updateRow(index, { description: v })}
+            placeholder="Description / specs"
+            multiline
+            className="mb-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+            style={{ minHeight: 50, textAlignVertical: 'top' }}
+          />
+          <View className="flex-row gap-2">
+            <TextInput
+              value={row.mrp}
+              onChangeText={(v) => updateRow(index, { mrp: decimalInput(v) })}
+              placeholder="MRP"
+              keyboardType="numeric"
+              className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
+            />
+            <TextInput
+              value={row.discount}
+              onChangeText={(v) => updateRow(index, { discount: decimalInput(v) })}
+              placeholder="Disc./unit"
+              keyboardType="numeric"
+              className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
+            />
+            <TextInput
+              value={row.rate}
+              onChangeText={(v) => updateRow(index, { rate: decimalInput(v) })}
+              placeholder="Rate"
+              keyboardType="numeric"
+              className="flex-1 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
+            />
+            <TextInput
+              value={row.qty}
+              onChangeText={(v) => updateRow(index, { qty: digitsInput(v) })}
+              placeholder="Qty"
+              keyboardType="numeric"
+              className="w-16 rounded-lg border border-gray-300 px-2.5 py-2 text-sm"
+            />
+          </View>
+          <Text className="mt-2 text-right text-sm font-bold text-gray-900">
+            NPR {rowAmount(row).toLocaleString()}
+          </Text>
+        </View>
+      ))}
+      <Pressable onPress={addRow} className="mb-2 self-start">
+        <Text className="text-sm font-semibold text-blue-600">+ Add item</Text>
+      </Pressable>
+      <View className="mt-1 flex-row justify-end">
+        <Text className="text-lg font-extrabold text-gray-900">Total NPR {total.toLocaleString()}</Text>
+      </View>
+    </FormSection>
+  );
+
+  const termsSection = (
+    <FormSection icon="reader-outline" title="Terms & Conditions">
+      <TextInput
+        value={terms}
+        onChangeText={setTerms}
+        multiline
+        numberOfLines={8}
+        className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-xs"
+        style={{ minHeight: 140, textAlignVertical: 'top' }}
+      />
+    </FormSection>
+  );
+
+  const generateButton = (
+    <Pressable
+      onPress={handleGenerate}
+      disabled={generating}
+      className="items-center rounded-lg bg-blue-600 py-3 disabled:opacity-50"
+    >
+      <Text className="text-base font-semibold text-white">{generating ? 'Generating…' : 'Generate PDF'}</Text>
+    </Pressable>
+  );
+
+  return (
+    <ScrollView className={wide ? 'flex-1 bg-gray-50 px-8 pt-5' : 'flex-1 bg-gray-50 px-6 pt-4'} contentContainerStyle={{ paddingBottom: 100 }}>
+      <Text className="mb-4 text-2xl font-bold text-gray-900">Generate Quotation</Text>
+
+      {wide ? (
+        // Wide web: the details on the left, the items (the part that grows)
+        // on the right, so the form uses the room beside the sidebar instead
+        // of stretching one column of fields across it.
+        <View className="flex-row items-start" style={{ gap: 24 }}>
+          <View style={{ flex: 2, minWidth: 0 }}>
+            {businessSection}
+            <View className="rounded-2xl border border-gray-200 bg-white p-4">
+              {clientSection}
+              {quoteSection}
+              {termsSection}
+            </View>
+          </View>
+          <View className="rounded-2xl border border-gray-200 bg-white p-4" style={{ flex: 3, minWidth: 0 }}>
+            {itemsSection}
+            {generateButton}
+          </View>
+        </View>
+      ) : (
+        <>
+          {businessSection}
+          <View className="rounded-2xl border border-gray-200 bg-white p-4">
+            {clientSection}
+            {quoteSection}
+            {itemsSection}
+            {termsSection}
+            {generateButton}
+          </View>
+        </>
+      )}
 
       <ProductPickerModal
         visible={pickerRowIndex != null}
