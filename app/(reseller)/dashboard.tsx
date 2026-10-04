@@ -203,6 +203,10 @@ export default function ResellerDashboard() {
   const userId = useAuthStore((state) => state.session?.user.id);
   const [search, setSearch] = useState('');
   const [pickerCategory, setPickerCategory] = useState<ServiceCategory | null>(null);
+  // Width of the wide layout's main column, so the category grid can add
+  // columns as the page gets wider (8 is what fits the narrowest wide page).
+  const [mainColumnWidth, setMainColumnWidth] = useState(0);
+  const categoryColumns = Math.min(12, Math.max(8, Math.floor(mainColumnWidth / 92)));
 
   // A phone browser hitting the website is still Platform.OS === 'web', so
   // that alone can't pick the desktop layout below - its fixed-width search
@@ -331,9 +335,13 @@ export default function ResellerDashboard() {
             </View>
 
             <View className="flex-row gap-6">
-              <View className="flex-1" style={{ minWidth: 0 }}>
+              <View
+                className="flex-1"
+                style={{ minWidth: 0 }}
+                onLayout={(e) => setMainColumnWidth(e.nativeEvent.layout.width)}
+              >
                 <Text className="mb-3 text-[15px] font-bold text-gray-900">Browse by category</Text>
-                <CategoryGrid categories={filteredCategories} onSelect={setPickerCategory} columns={8} />
+                <CategoryGrid categories={filteredCategories} onSelect={setPickerCategory} columns={categoryColumns} />
 
                 {recentlyHiredTechnicians.length > 0 && (
                   <>

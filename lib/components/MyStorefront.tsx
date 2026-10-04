@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuthStore } from '../hooks/useAuth';
 import { useSupabaseQuery, useSupabaseUpdate } from '../hooks/useSupabase';
+import { useWideGrid } from '../hooks/useWideGrid';
 import { SearchBar } from './SearchBar';
 import { SearchFilterSheet } from './SearchFilterSheet';
 import { ShopOverviewSection } from './ShopOverviewSection';
@@ -106,7 +107,9 @@ function ProductThumbnail({ item }: { item: Product }) {
   );
 }
 
-function StorefrontCard({ item, basePath }: { item: Product; basePath: string }) {
+/** `fill` makes the card take its whole cell instead of the phone layout's
+ * fixed 48% (two to a row) - used by the wide web grid below. */
+function StorefrontCard({ item, basePath, fill }: { item: Product; basePath: string; fill?: boolean }) {
   const updateProduct = useSupabaseUpdate('products');
   const isAvailable = item.is_listed ?? true;
   const hasPrice = Number(item.price) > 0;
@@ -140,7 +143,7 @@ function StorefrontCard({ item, basePath }: { item: Product; basePath: string })
       : 'border-gray-200 bg-white';
 
   return (
-    <View className={`mb-4 w-[48%] rounded-xl border p-3 ${cardTone} ${faded ? 'opacity-60' : ''}`}>
+    <View className={`mb-4 ${fill ? 'w-full' : 'w-[48%]'} rounded-xl border p-3 ${cardTone} ${faded ? 'opacity-60' : ''}`}>
       <Pressable
         onPress={() => detailHref && router.push(detailHref)}
         className="mb-2 aspect-square items-center justify-center overflow-hidden rounded-lg bg-gray-100"
@@ -203,6 +206,10 @@ export function MyStorefront({
   const [category, setCategory] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Wide web shows as many cards per row as fit; a phone (or a phone browser)
+  // keeps the plain two-per-row grid.
+  const { wide: wideGrid, containerProps, cellStyle } = useWideGrid();
 
   const { data: products, isLoading } = useSupabaseQuery('products', {
     filters: { seller_id: userId ?? '', seller_role: sellerRole },
@@ -302,10 +309,16 @@ export function MyStorefront({
       {isLoading && <Text className="text-gray-500">Loading…</Text>}
       {!isLoading && filtered.length === 0 && <Text className="text-gray-500">No products match your search.</Text>}
 
-      <View className="flex-row flex-wrap justify-between">
-        {filtered.map((item) => (
-          <StorefrontCard key={item.id} item={item} basePath={basePath} />
-        ))}
+      <View className={wideGrid ? 'flex-row flex-wrap' : 'flex-row flex-wrap justify-between'} {...containerProps}>
+        {filtered.map((item) =>
+          wideGrid ? (
+            <View key={item.id} style={cellStyle}>
+              <StorefrontCard item={item} basePath={basePath} fill />
+            </View>
+          ) : (
+            <StorefrontCard key={item.id} item={item} basePath={basePath} />
+          )
+        )}
       </View>
     </>
   );

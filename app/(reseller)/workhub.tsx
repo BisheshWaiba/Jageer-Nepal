@@ -173,7 +173,7 @@ function Column({
   return (
     <View
       className="rounded-2xl border border-gray-200 bg-gray-50"
-      style={wide ? { width: 320, flexGrow: 0, flexShrink: 0 } : undefined}
+      style={wide ? { minWidth: 320, flexBasis: 320, flexGrow: 1, flexShrink: 0 } : undefined}
     >
       <View className="flex-row items-center gap-2.5 rounded-t-2xl px-3.5 py-3" style={{ backgroundColor: tint }}>
         {avatar ? (
@@ -1015,7 +1015,13 @@ export default function WorkHub() {
         {view === 'sheet' ? (
           sheet
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
+          // flexGrow/minWidth let the columns (each 320px at least) share any
+          // extra room instead of leaving an empty strip on the right.
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator
+            contentContainerStyle={{ gap: 14, paddingBottom: 8, flexGrow: 1, minWidth: '100%' }}
+          >
             {columns}
           </ScrollView>
         )}
